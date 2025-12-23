@@ -25,6 +25,11 @@ export const createLead = async (
   data: CreateLeadInput
 ): Promise<LeadDocument> => {
   console.log('data', data)
+  const isScheduled =
+    data.appointments.status === "scheduled" &&
+    !!data.appointments.date &&
+    !isNaN(new Date(data.appointments.date).getTime());
+
   const lead = await AppointmentModel.create({
     clinic: {
       clinicId: data.clinic.clinicId,
@@ -34,12 +39,16 @@ export const createLead = async (
     patient: {
       name: data.patient.name,
       tel: data.patient.tel,
-      lineId: data.patient.lineId,
+      ...(data.patient.lineId ? { lineId: data.patient.lineId } : {}),
     },
-    appointments: {
-      status: data.appointments.status,
-      date: new Date(data.appointments.date),
-    },
+    appointments: isScheduled
+      ? {
+          status: "scheduled",
+          date: new Date(data.appointments.date),
+        }
+      : {
+          status: "pending",
+        },
     interests: data.interests,
     referralChannel: data.referralChannel,
     note: data.note,
@@ -48,6 +57,7 @@ export const createLead = async (
 
   return lead;
 };
+
 
 
 export const findLeads = (filter: Record<string, any> = {}) => {

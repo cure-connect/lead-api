@@ -12,6 +12,7 @@ export const createLeadController = async (req: Request, res: Response) => {
         const lead = await createLead(req.body);
         res.status(201).json(lead);
     } catch (error: any) {
+        console.log('error', error)
         res.status(400).json({
             message: "Create lead failed",
             error: error.message,

@@ -12,15 +12,13 @@ export interface LeadDocument extends Document {
     lineId?: string;
   };
   appointments: {
-    status: string;
-    date: Date;
+    status: "pending" | "scheduled";
+    date?: Date;
   };
   interests?: string;
   referralChannel?: string;
   note?: string;
   createdBy: string;
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 const AppointmentSchema = new Schema<LeadDocument>(
@@ -38,14 +36,22 @@ const AppointmentSchema = new Schema<LeadDocument>(
     },
 
     appointments: {
-      status: { type: String, required: true },
-      date: { type: Date, required: true },
+      status: {
+        type: String,
+        enum: ["pending", "scheduled"],
+        required: true,
+      },
+      date: {
+        type: Date,
+        required: function (this: any) {
+          return this.appointments?.status === "scheduled";
+        },
+      },
     },
 
     interests: { type: String },
     referralChannel: { type: String },
     note: { type: String },
-
     createdBy: { type: String, required: true },
   },
   {
