@@ -17,7 +17,7 @@ router.use(apiKeyMiddleware(API_KEY));
 router.post("/createlead", createLeadController);
 router.get("/lead", getLeadsController);
 router.get("/:id", getLeadByIdController);
-router.put("/:id", updateLeadController);
+router.patch("/:id", updateLeadController);
 router.delete("/:id", deleteLeadController);
 
 export default router;

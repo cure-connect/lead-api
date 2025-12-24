@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { AppointmentModel, LeadDocument } from "../models/appointment";
 
 interface CreateLeadInput {
@@ -59,7 +60,6 @@ export const createLead = async (
 };
 
 
-
 export const findLeads = (filter: Record<string, any> = {}) => {
   return AppointmentModel.find(filter).sort({ createdAt: -1 });
 };
@@ -68,11 +68,30 @@ export const findLeadById = (id: string) => {
   return AppointmentModel.findById(id);
 };
 
-export const updateLeadById = (id: string, data: any) => {
-  return AppointmentModel.findByIdAndUpdate(id, data, {
-    new: true,
-  });
+export const updateLeadById = async (id: string, data: Partial<LeadDocument>) => {
+  const lead = await AppointmentModel.findById(id);
+  if (!lead) return null;
+
+  const { patient, appointments, ...otherData } = data;
+
+  Object.assign(lead, otherData);
+
+  if (patient) {
+    lead.patient = { ...lead.patient, ...patient };
+  }
+
+  if (appointments) {
+    lead.appointments = { 
+       ...lead.appointments,
+       ...appointments
+    };
+  }
+
+  await lead.save();
+  return lead;
 };
+
+
 
 export const deleteLeadById = (id: string) => {
   return AppointmentModel.findByIdAndDelete(id);

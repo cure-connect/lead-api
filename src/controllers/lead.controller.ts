@@ -54,21 +54,25 @@ export const getLeadByIdController = async (req: Request, res: Response) => {
 };
 
 export const updateLeadController = async (req: Request, res: Response) => {
-    try {
-        const lead = await updateLeadById(req.params.id, req.body);
+  try {
+    const leadId = req.params.id;
+    const updateData = req.body;
 
-        if (!lead) {
-            return res.status(404).json({ message: "Lead not found" });
-        }
+    const updatedLead = await updateLeadById(leadId, updateData);
 
-        res.json(lead);
-    } catch (error: any) {
-        res.status(400).json({
-            message: "Update lead failed",
-            error: error.message,
-        });
+    if (!updatedLead) {
+      return res.status(404).json({ message: "Lead not found" });
     }
+
+    res.status(200).json(updatedLead);
+  } catch (error: any) {
+    res.status(400).json({
+      message: "Update lead failed",
+      error: error.message,
+    });
+  }
 };
+
 
 export const deleteLeadController = async (req: Request, res: Response) => {
     try {
