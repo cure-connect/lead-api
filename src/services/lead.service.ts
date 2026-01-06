@@ -72,9 +72,13 @@ export const updateLeadById = async (id: string, data: Partial<LeadDocument>) =>
   const lead = await AppointmentModel.findById(id);
   if (!lead) return null;
 
-  const { patient, appointments, ...otherData } = data;
+  const { clinic, patient, appointments, ...otherData } = data;
 
   Object.assign(lead, otherData);
+
+  if(clinic){
+    lead.clinic = { ...lead.clinic, ...clinic}
+  }
 
   if (patient) {
     lead.patient = { ...lead.patient, ...patient };
