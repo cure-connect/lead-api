@@ -8,7 +8,7 @@ interface BaseDocument extends Document {
 }
 
 export interface InterestDocument extends BaseDocument {
-  price: string;
+  price: number;
 }
 
 function autoIncrement(schema: Schema) {

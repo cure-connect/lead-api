@@ -57,6 +57,7 @@ export const updateLeadController = async (req: Request, res: Response) => {
   try {
     const leadId = req.params.id;
     const updateData = req.body;
+    console.log('data', req.body)
 
     const updatedLead = await updateLeadById(leadId, updateData);
 

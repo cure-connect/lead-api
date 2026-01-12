@@ -10,13 +10,13 @@ export const createSetting = async (body: CreateSetting): Promise<CreateSetting>
     try {
         const create = await InterestModel.create({
             name: body.name,
-            price: body.price
+            price: Number(body.price)
         });
 
         return {
             id: create.id,
             name: create.name,
-            price: create.price
+            price: String(create.price)
         };
 
     } catch (error) {
@@ -175,7 +175,10 @@ export const createInterest = async (payload: { name: string; price: string }) =
         throw new Error("price is required for interest");
     }
     try {
-        const result = InterestModel.create(payload);
+        const result = await InterestModel.create({
+            name: payload.name,
+            price: Number(payload.price)
+        });
         return result
     } catch (error) {
         throw error
@@ -203,9 +206,13 @@ export const editInterest = async (
     payload: { name?: string; price?: string }
 ) => {
     try {
+        const updatePayload: { name?: string; price?: number } = {};
+        if (payload.name !== undefined) updatePayload.name = payload.name;
+        if (payload.price !== undefined) updatePayload.price = Number(payload.price);
+        
         return await InterestModel.findOneAndUpdate(
             { id },
-            { $set: payload },
+            { $set: updatePayload },
             { new: true, lean: true }
         );
     } catch (error) {
