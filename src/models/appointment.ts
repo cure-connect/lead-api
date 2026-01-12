@@ -25,7 +25,7 @@ export interface LeadDocument extends Document {
     amount: number;
     installment?: {
       months?: number;
-      monthlyAmount?: number;
+      monthlyAmount?: number[];
       interestRate?: number;
     };
   };
@@ -82,7 +82,7 @@ const AppointmentSchema = new Schema<LeadDocument>(
       },
       installment: {
         months: Number,
-        monthlyAmount: Number,
+        monthlyAmount: { type: [Number], default: []},
         interestRate: Number,
       },
     },

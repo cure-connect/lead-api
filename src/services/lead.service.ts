@@ -128,6 +128,8 @@ export const updateLeadById = async (
     if(body.payments.method != undefined) $set["payments.method"] = body.payments.method
     if(body.payments.amount != undefined) $set["payments.amount"] = body.payments.amount
     if(body.payments.months != undefined) $set["payments.months"] = body.payments.months
+    if(body.payments.installment.months != undefined) $set["payments.installment.months"] = body.payments.installment.months
+    if(body.payments.installment.monthlyAmount != undefined) $set["payments.installment.monthlyAmount"] = body.payments.installment.monthlyAmount
   }
 
   if (body.referralChannel !== undefined)
