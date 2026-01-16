@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { generateToken } from "../utils/jwt";
+import bcrypt from "bcrypt";
+import { UserModel } from "../models/user";
 
 export const apiKeyMiddleware = (secretKey: string) => (req: Request, res: Response, next: NextFunction) => {
     const apiKey = req.headers["x-api-key"];

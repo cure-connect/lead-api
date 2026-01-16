@@ -25,7 +25,6 @@ interface CreateLeadInput {
 export const createLead = async (
   data: CreateLeadInput
 ): Promise<LeadDocument> => {
-  console.log('data', data)
   const isScheduled =
     data.appointments.status === "scheduled" &&
     !!data.appointments.date &&
@@ -60,7 +59,6 @@ export const createLead = async (
     createdBy: data.createdBy,
   });
 
-  console.log(lead)
   return lead;
 };
 

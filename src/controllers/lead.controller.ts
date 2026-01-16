@@ -12,7 +12,6 @@ export const createLeadController = async (req: Request, res: Response) => {
         const lead = await createLead(req.body);
         res.status(201).json(lead);
     } catch (error: any) {
-        console.log('error', error)
         res.status(400).json({
             message: "Create lead failed",
             error: error.message,
@@ -28,7 +27,6 @@ export const getLeadsController = async (req: Request, res: Response) => {
       data: leads,
     });
   } catch (error) {
-    console.error("getLeads error:", error);
     res.status(500).json({
       message: "Get leads failed",
     });
@@ -57,7 +55,6 @@ export const updateLeadController = async (req: Request, res: Response) => {
   try {
     const leadId = req.params.id;
     const updateData = req.body;
-    console.log('data', req.body)
 
     const updatedLead = await updateLeadById(leadId, updateData);
 
