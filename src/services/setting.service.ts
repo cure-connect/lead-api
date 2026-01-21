@@ -1,5 +1,7 @@
 import { AdminModel, BranchModel, ChannelModel, InterestModel } from "../models/settings"
 
+import { SettingModel, SettingType } from "../models/setting";
+
 interface CreateSetting {
     id: number,
     name: string,
@@ -209,7 +211,7 @@ export const editInterest = async (
         const updatePayload: { name?: string; price?: number } = {};
         if (payload.name !== undefined) updatePayload.name = payload.name;
         if (payload.price !== undefined) updatePayload.price = Number(payload.price);
-        
+
         return await InterestModel.findOneAndUpdate(
             { id },
             { $set: updatePayload },
@@ -227,3 +229,45 @@ export const deleteInterestById = async (id: number) => {
         throw error;
     }
 };
+
+
+export const createSettings = async (
+    clinicId: number,
+    type: SettingType,
+    payload: { name: string; price?: string }
+) => {
+    return SettingModel.create({
+        clinicId,
+        type,
+        name: payload.name,
+        price: type === "interest" ? Number(payload.price) : undefined
+    });
+};
+
+export const getAllSettingByType = async (
+    clinicId: number,
+    type: SettingType
+) => {
+    return SettingModel.find({ clinicId, type }).lean();
+};
+
+export const editSetting = async (
+    clinicId: number,
+    id: string,
+    payload: { name?: string; price?: string }
+) => {
+    const update: any = {};
+    if (payload.name) update.name = payload.name;
+    if (payload.price) update.price = Number(payload.price);
+
+    return SettingModel.findOneAndUpdate(
+        { _id: id, clinicId: clinicId },
+        { $set: update },
+        { new: true, lean: true }
+    );
+};
+
+export const deleteSetting = async (clinicId: number, id: string) => {
+  return SettingModel.findOneAndDelete({ _id: id, clinicId }).lean();
+};
+

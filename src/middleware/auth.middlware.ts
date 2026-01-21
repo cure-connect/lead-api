@@ -22,9 +22,23 @@ export const apiKeyMiddleware = (secretKey: string) => (req: Request, res: Respo
 export interface AuthRequest extends Request {
   user?: {
     id: string;
-    role?: string;
+    username: string;
+    clinicId: number;
+    clinicName: string;
+    branch: string;
   };
 }
+
+export interface JwtPayload {
+  _id: string;
+  username: string;
+  clinicId: number;
+  clinicName: string;
+  branch: string;
+  iat: number;
+  exp: number;
+}
+
 
 export const authMiddleware = (
   req: AuthRequest,
@@ -43,11 +57,14 @@ export const authMiddleware = (
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET as string
-    ) as any;
+    ) as JwtPayload;
 
     req.user = {
-      id: decoded.id,
-      role: decoded.role,
+      id: decoded._id,
+      username: decoded.username,
+      clinicId: decoded.clinicId,
+      clinicName: decoded.clinicName,
+      branch: decoded.branch,
     };
 
     next();

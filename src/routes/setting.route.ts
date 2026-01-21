@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { createSettingController } from "../controllers/setting.controller";
+import { createSettingController, deleteSettingController, editSettingController, getAllSettingController } from "../controllers/setting.controller";
 import { getAllAdminController , getAdminByIdController, editAdminController, deleteAdminController} from "../controllers/admin.controller"
 import { getAllBranchController, getBranchByIdController, editBranchController, deleteBranchController } from "../controllers/branch.controller"
 import { getAllChannelController, getChannelByIdController, editChannelController, deleteChannelController } from "../controllers/channel.controller";
 import { getAllInterestController, getInterestByIdController, editInterestController, deleteInterestController } from "../controllers/interest.controller";
-import { apiKeyMiddleware } from "../middleware/auth.middlware";
+import { apiKeyMiddleware, authMiddleware } from "../middleware/auth.middlware";
+import { createSettings } from "../services/setting.service";
 
 const router = Router();
 
@@ -37,5 +38,10 @@ router.get('/setting/getinterest', getAllInterestController)
 router.get('/setting/getinterest/:id', getInterestByIdController)
 router.patch('/setting/editinterest/:id', editInterestController)
 router.delete('/setting/deleteinterest/:id', deleteInterestController)
+
+router.post('/setting/createsetting', authMiddleware, createSettingController)
+router.get('/setting/gettype', authMiddleware, getAllSettingController)
+router.patch('/setting/editsetting/:id', authMiddleware, editSettingController)
+router.delete('/setting/deletesetting/:id', authMiddleware ,deleteSettingController)
 
 export default router;
