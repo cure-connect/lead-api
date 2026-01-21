@@ -1,22 +1,22 @@
-import { Types } from "mongoose";
 import { AppointmentModel, LeadDocument } from "../models/appointment";
 
+type AppointmentStatus = "pending" | "scheduled" | "rescheduled" | "cancelled" | "arrived";
 interface CreateLeadInput {
   clinic: {
-    clinicId: string,
-    name: string,
-    branch: string,
-  },
+    clinicId: number;
+    name: string;
+    branch: string;
+  };
   patient: {
     name: string;
     tel: string;
     lineId?: string;
   };
   appointments: {
-    status: string;
-    date: Date | string;
+    status: AppointmentStatus;
+    date?: Date | string;
   };
-  interests?: Array<{ interestId: string; name: string; price: string }>;
+  interests?: Array<{ interestId?: string; name: string; price: string }>;
   referralChannel?: string;
   note?: string;
   createdBy: string;
@@ -32,6 +32,7 @@ export const createLead = async (
 
   const lead = await AppointmentModel.create({
     clinic: {
+      clinicId: data.clinic.clinicId,
       name: data.clinic.name,
       branch: data.clinic.branch,
     },
@@ -43,12 +44,11 @@ export const createLead = async (
     appointments: isScheduled
       ? {
         status: "scheduled",
-        date: new Date(data.appointments.date),
+        date: new Date(data.appointments.date!),
       }
       : {
-        status: "pending",
+        status: data.appointments.status || "pending",
       },
-
     interests: data.interests?.map((i) => ({
       interestId: i.interestId,
       name: i.name,
@@ -62,25 +62,22 @@ export const createLead = async (
   return lead;
 };
 
-
-export const findLeads = (filter: Record<string, any> = {}) => {
-  return AppointmentModel.find(filter).sort({ createdAt: -1 });
+export const findLeads = (clinicId: number) => {
+  return AppointmentModel.find({ "clinic.clinicId": clinicId }).sort({ createdAt: -1 });
 };
 
-export const findLeadById = (id: string) => {
-  return AppointmentModel.findById(id);
+export const findLeadById = (id: string, clinicId: number) => {
+  return AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId });
 };
 
 export const updateLeadById = async (
   id: string,
+  clinicId: number,
   body: any
 ) => {
   const $set: any = {};
 
   if (body.clinic) {
-    if (body.clinic.clinicId !== undefined)
-      $set["clinic.clinicId"] = body.clinic.clinicId;
-
     if (body.clinic.name !== undefined)
       $set["clinic.name"] = body.clinic.name;
 
@@ -108,26 +105,22 @@ export const updateLeadById = async (
   }
 
   if (body.interests !== undefined) {
-    if (
-      Array.isArray(body.interests) &&
-      body.interests.every(
-        (i: any) =>
-          typeof i === "object" &&
-          i.procedureId &&
-          i.name &&
-          typeof i.price === "string"
-      )
-    ) {
+    if (Array.isArray(body.interests)) {
       $set["interests"] = body.interests;
     }
   }
 
-  if(body.payments) {
-    if(body.payments.method != undefined) $set["payments.method"] = body.payments.method
-    if(body.payments.amount != undefined) $set["payments.amount"] = body.payments.amount
-    if(body.payments.months != undefined) $set["payments.months"] = body.payments.months
-    if(body.payments.installment.months != undefined) $set["payments.installment.months"] = body.payments.installment.months
-    if(body.payments.installment.monthlyAmount != undefined) $set["payments.installment.monthlyAmount"] = body.payments.installment.monthlyAmount
+  if (body.payments) {
+    if (body.payments.method !== undefined) $set["payments.method"] = body.payments.method;
+    if (body.payments.amount !== undefined) $set["payments.amount"] = body.payments.amount;
+    if (body.payments.installment) {
+      if (body.payments.installment.months !== undefined)
+        $set["payments.installment.months"] = body.payments.installment.months;
+      if (body.payments.installment.monthlyAmount !== undefined)
+        $set["payments.installment.monthlyAmount"] = body.payments.installment.monthlyAmount;
+      if (body.payments.installment.interestRate !== undefined)
+        $set["payments.installment.interestRate"] = body.payments.installment.interestRate;
+    }
   }
 
   if (body.referralChannel !== undefined)
@@ -140,8 +133,8 @@ export const updateLeadById = async (
     return null;
   }
 
-  return AppointmentModel.findByIdAndUpdate(
-    id,
+  return AppointmentModel.findOneAndUpdate(
+    { _id: id, "clinic.clinicId": clinicId },
     { $set },
     {
       new: true,
@@ -150,8 +143,6 @@ export const updateLeadById = async (
   );
 };
 
-
-
-export const deleteLeadById = (id: string) => {
-  return AppointmentModel.findByIdAndDelete(id);
+export const deleteLeadById = (id: string, clinicId: number) => {
+  return AppointmentModel.findOneAndDelete({ _id: id, "clinic.clinicId": clinicId });
 };

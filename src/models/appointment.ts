@@ -1,8 +1,9 @@
 import { Schema, model, Document, Model } from "mongoose";
 
 export interface LeadDocument extends Document {
-  clinicId: number;
+  leadId: number;
   clinic: {
+    clinicId: number;
     name: string;
     branch: string;
   };
@@ -12,7 +13,7 @@ export interface LeadDocument extends Document {
     lineId?: string;
   };
   appointments: {
-    status: "pending" | "scheduled" | "rescheduled" | "cancelled";
+    status: "pending" | "scheduled" | "rescheduled" | "cancelled" | "arrived";
     date?: Date;
   };
   interests?: {
@@ -36,9 +37,10 @@ export interface LeadDocument extends Document {
 
 const AppointmentSchema = new Schema<LeadDocument>(
   {
-    clinicId: { type: Number, unique: true ,index: true },
+    leadId: { type: Number, unique: true, index: true },
 
     clinic: {
+      clinicId: { type: Number, required: true, index: true },
       name: { type: String, required: true },
       branch: { type: String, required: true },
     },
@@ -65,6 +67,7 @@ const AppointmentSchema = new Schema<LeadDocument>(
 
     interests: [
       {
+        interestId: { type: String },
         name: { type: String, required: true },
         price: { type: String, required: true },
       },
@@ -82,7 +85,7 @@ const AppointmentSchema = new Schema<LeadDocument>(
       },
       installment: {
         months: Number,
-        monthlyAmount: { type: [Number], default: []},
+        monthlyAmount: { type: [Number], default: [] },
         interestRate: Number,
       },
     },
@@ -97,19 +100,17 @@ const AppointmentSchema = new Schema<LeadDocument>(
 );
 
 AppointmentSchema.pre("save", async function () {
-  if (this.clinicId) return;
+  if (this.leadId) return;
 
   const Model = this.constructor as Model<any>;
 
   const last = await Model
-    .findOne({}, { clinicId: 1 })
-    .sort({ clinicId: -1 })
+    .findOne({}, { leadId: 1 })
+    .sort({ leadId: -1 })
     .lean();
 
-  this.clinicId = last ? last.clinicId + 1 : 1;
+  this.leadId = last ? last.leadId + 1 : 1;
 });
-
-
 
 export const AppointmentModel = model<LeadDocument>(
   "Appointment",
