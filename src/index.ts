@@ -11,7 +11,7 @@ import authroute from "./routes/auth.route"
 const app = express();
 
 app.use(cors({
-  origin: "*",
+  origin: `${process.env.CORS_ORIGIN}`,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
 }));
