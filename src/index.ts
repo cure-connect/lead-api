@@ -10,18 +10,22 @@ import authroute from "./routes/auth.route"
 
 const app = express();
 
-app.use(
-  cors({
-    origin: [`${process.env.CORS_ORIGIN}`, "http://localhost:5173"],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "x-api-key",
-    ],
-  })
-);
+const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
+}));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
