@@ -10,22 +10,27 @@ import authroute from "./routes/auth.route"
 
 const app = express();
 
-const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
-}));
+const allowedOrigins =
+  process.env.CORS_ORIGIN?.split(",").map(o => o.trim()) || [];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-api-key"],
+  })
+);
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
