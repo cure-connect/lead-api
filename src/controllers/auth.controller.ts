@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { login } from "../services/auth.service";
+import { login, refreshTokenService } from "../services/auth.service";
 
 export const loginController = async (req: Request, res: Response) => {
   try {
@@ -11,5 +11,21 @@ export const loginController = async (req: Request, res: Response) => {
     })
   } catch (error: any) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+export const refreshTokenController = async (req: Request, res: Response) => {
+  try {
+    const refreshToken = req.body.refreshToken;
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: "Missing refresh token" });
+    }
+
+    const newAccessToken = await refreshTokenService(refreshToken);
+
+    res.json({ accessToken: newAccessToken });
+  } catch (err) {
+    res.status(401).json({ message: "Invalid refresh token" });
   }
 };
