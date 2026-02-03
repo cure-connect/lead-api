@@ -63,7 +63,7 @@ export const getAllSettingController = async (req: AuthRequest, res: Response) =
             });
         }
 
-        const [admins, branches, channels, interests] = await Promise.all([
+        const [admins, interests, branches, channels] = await Promise.all([
             getAllSettingByType(clinicId, "admin"),
             getAllSettingByType(clinicId, "interest"),
             getAllSettingByType(clinicId, "branch"),
@@ -76,6 +76,7 @@ export const getAllSettingController = async (req: AuthRequest, res: Response) =
             branches,
             channels,
         });
+        
     } catch (err: any) {
         console.log('error', err)
         res.status(500).json({ message: err.message });
