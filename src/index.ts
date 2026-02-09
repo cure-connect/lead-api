@@ -9,6 +9,8 @@ import settingroute from "./routes/setting.route"
 import userroute from "./routes/user.route"
 import authroute from "./routes/auth.route"
 import uploadroute from "./routes/upload.route"
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger";
 
 const app = express();
 
@@ -37,6 +39,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use("/lead/v1/auth", authroute)
 app.use("/lead/v1/api", leadroute)
