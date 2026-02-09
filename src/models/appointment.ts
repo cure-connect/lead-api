@@ -1,7 +1,6 @@
-import { Schema, model, Document, Model } from "mongoose";
+import { Schema, model, Document } from "mongoose";
 
 export interface LeadDocument extends Document {
-  leadId: number;
   clinic: {
     clinicId: number;
     name: string;
@@ -22,14 +21,33 @@ export interface LeadDocument extends Document {
     price: string;
   }[];
   payments?: {
-    method: "cash" | "transfer" | "card" | "installment";
+    method: "cash" | "transfer" | "card";
     amount: number;
-    installment?: {
-      months?: number;
-      monthlyAmount?: number[];
-      interestRate?: number;
+    serviceCharge?: {
+      rate: number;
+      amount: number;
+      netAmount: number;
+    };
+    commission?: {
+      totalAmount: number;
+      details: Array<{
+        procedureName: string;
+        baseAmount: number;
+        rate: number;
+        amount: number;
+      }>;
     };
   };
+  procedures?: {
+    name: string;
+    price: string;
+    commissionRate?: number;
+  }[];
+  deposit?: {
+    amount: number;
+    slipUrl: string;
+  };
+
   referralChannel?: string;
   note?: string;
   createdBy: string;
@@ -37,8 +55,6 @@ export interface LeadDocument extends Document {
 
 const AppointmentSchema = new Schema<LeadDocument>(
   {
-    leadId: { type: Number, unique: true, index: true },
-
     clinic: {
       clinicId: { type: Number, required: true, index: true },
       name: { type: String, required: true },
@@ -76,19 +92,44 @@ const AppointmentSchema = new Schema<LeadDocument>(
     payments: {
       method: {
         type: String,
-        enum: ["cash", "transfer", "card", "installment"],
+        enum: ["cash", "transfer", "card"],
         required: false,
       },
       amount: {
         type: Number,
         required: false,
       },
-      installment: {
-        months: Number,
-        monthlyAmount: { type: [Number], default: [] },
-        interestRate: Number,
+      serviceCharge: {
+        rate: { type: Number },
+        amount: { type: Number },
+        netAmount: { type: Number },
+      },
+      commission: {
+        totalAmount: { type: Number },
+        details: [
+          {
+            procedureName: { type: String },
+            baseAmount: { type: Number },
+            rate: { type: Number },
+            amount: { type: Number },
+          },
+        ],
       },
     },
+
+    procedures: [
+      {
+        name: { type: String, required: true },
+        price: { type: String, required: true },
+        commissionRate: { type: Number },
+      },
+    ],
+
+    deposit: {
+      amount: { type: Number },
+      slipUrl: { type: String },
+    },
+
     referralChannel: { type: String },
     note: { type: String },
     createdBy: { type: String, required: true },
@@ -98,19 +139,6 @@ const AppointmentSchema = new Schema<LeadDocument>(
     versionKey: false,
   }
 );
-
-AppointmentSchema.pre("save", async function () {
-  if (this.leadId) return;
-
-  const Model = this.constructor as Model<any>;
-
-  const last = await Model
-    .findOne({}, { leadId: 1 })
-    .sort({ leadId: -1 })
-    .lean();
-
-  this.leadId = last ? last.leadId + 1 : 1;
-});
 
 export const AppointmentModel = model<LeadDocument>(
   "Appointment",

@@ -20,13 +20,32 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
       });
     }
 
+    let body: any;
+
+    if (req.file) {
+      body = JSON.parse(req.body.data || "{}");
+    } else {
+      body = req.body;
+    }
+
+    let deposit: { amount: number; slipUrl: string } | undefined;
+
+    if (req.file && body.depositAmount) {
+      const slipUrl = `/uploads/slips/${req.file.filename}`;
+      deposit = {
+        amount: Number(body.depositAmount),
+        slipUrl,
+      };
+    }
+
     const leadData = {
-      ...req.body,
+      ...body,
       clinic: {
         clinicId,
-        name: clinicName || req.body.clinic?.name,
-        branch: branch || req.body.clinic?.branch,
+        name: clinicName || body.clinic?.name,
+        branch: branch || body.clinic?.branch,
       },
+      ...(deposit ? { deposit } : {}),
     };
 
     const lead = await createLead(leadData);
@@ -97,7 +116,22 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
     }
 
     const leadId = req.params.id;
-    const updateData = req.body;
+
+    // รองรับทั้ง multipart/form-data และ JSON
+    let updateData: any;
+
+    if (req.file) {
+      updateData = JSON.parse(req.body.data || "{}");
+
+      const slipUrl = `/uploads/slips/${req.file.filename}`;
+      updateData.deposit = {
+        amount: Number(updateData.depositAmount || updateData.deposit?.amount),
+        slipUrl,
+      };
+      delete updateData.depositAmount;
+    } else {
+      updateData = req.body;
+    }
 
     const updatedLead = await updateLeadById(leadId, clinicId, updateData);
 
