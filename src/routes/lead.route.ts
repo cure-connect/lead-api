@@ -5,6 +5,8 @@ import {
   getLeadByIdController,
   updateLeadController,
   deleteLeadController,
+  getLeadHistoryController,
+  getNextLeadsController,
 } from "../controllers/lead.controller";
 import { apiKeyMiddleware, authMiddleware } from "../middleware/auth.middlware";
 
@@ -62,6 +64,9 @@ router.post("/createlead", createLeadController);
  *         description: List of leads
  */
 router.get("/lead", getLeadsController);
+
+router.get("/:id/history", getLeadHistoryController);
+router.get("/:id/next", getNextLeadsController);
 
 /**
  * @swagger

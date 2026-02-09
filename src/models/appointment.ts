@@ -1,6 +1,8 @@
-import { Schema, model, Document } from "mongoose";
+import { Schema, model, Document, Types } from "mongoose";
 
 export interface LeadDocument extends Document {
+  previousAppointmentId?: Types.ObjectId;
+
   clinic: {
     clinicId: number;
     name: string;
@@ -51,10 +53,17 @@ export interface LeadDocument extends Document {
   referralChannel?: string;
   note?: string;
   createdBy: string;
+  createdAt?: Date;
 }
 
 const AppointmentSchema = new Schema<LeadDocument>(
   {
+    previousAppointmentId: {
+      type: Schema.Types.ObjectId,
+      ref: "Appointment",
+      index: true
+    },
+
     clinic: {
       clinicId: { type: Number, required: true, index: true },
       name: { type: String, required: true },
@@ -63,7 +72,7 @@ const AppointmentSchema = new Schema<LeadDocument>(
 
     patient: {
       name: { type: String, required: true },
-      tel: { type: String, required: true },
+      tel: { type: String },
       lineId: { type: String },
     },
 

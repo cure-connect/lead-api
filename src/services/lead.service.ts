@@ -1,4 +1,5 @@
 import { AppointmentModel, LeadDocument } from "../models/appointment";
+import { Types } from "mongoose";
 
 type AppointmentStatus = "pending" | "scheduled" | "rescheduled" | "cancelled" | "arrived";
 
@@ -10,7 +11,7 @@ interface CreateLeadInput {
   };
   patient: {
     name: string;
-    tel: string;
+    tel?: string;
     lineId?: string;
   };
   appointments: {
@@ -27,6 +28,7 @@ interface CreateLeadInput {
   note?: string;
   createdBy: string;
   overrideCreatedAt?: Date | string;
+  previousAppointmentId?: string;
 }
 
 export const createLead = async (
@@ -38,15 +40,20 @@ export const createLead = async (
     !isNaN(new Date(data.appointments.date).getTime());
 
   const leadData: any = {
+    ...(data.previousAppointmentId
+      ? { previousAppointmentId: new Types.ObjectId(data.previousAppointmentId) }
+      : {}),
+
+    patient: {
+      name: data.patient.name,
+      tel: data.patient.tel || "",
+      ...(data.patient.lineId ? { lineId: data.patient.lineId } : {}),
+    },
+
     clinic: {
       clinicId: data.clinic.clinicId,
       name: data.clinic.name,
       branch: data.clinic.branch,
-    },
-    patient: {
-      name: data.patient.name,
-      tel: data.patient.tel,
-      ...(data.patient.lineId ? { lineId: data.patient.lineId } : {}),
     },
     appointments: isScheduled
       ? { status: "scheduled", date: new Date(data.appointments.date!) }
@@ -87,6 +94,87 @@ export const findLeads = (clinicId: number) => {
 
 export const findLeadById = (id: string, clinicId: number) => {
   return AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId });
+};
+
+export const getAppointmentHistory = async (
+  appointmentId: string,
+  clinicId: number
+) => {
+  const result = await AppointmentModel.aggregate([
+    {
+      $match: {
+        _id: new Types.ObjectId(appointmentId),
+        "clinic.clinicId": clinicId
+      }
+    },
+
+    {
+      $graphLookup: {
+        from: "appointments",
+        startWith: "$previousAppointmentId",
+        connectFromField: "previousAppointmentId",
+        connectToField: "_id",
+        as: "history",
+        maxDepth: 100,
+        restrictSearchWithMatch: { "clinic.clinicId": clinicId }
+      }
+    }
+  ]);
+
+  if (result.length === 0) {
+    return null;
+  }
+
+  const current = result[0];
+  const history = current.history || [];
+
+  history.sort((a: any, b: any) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
+  return {
+    current: {
+      _id: current._id,
+      patient: current.patient,
+      clinic: current.clinic,
+      appointments: current.appointments,
+      procedures: current.procedures,
+      payments: current.payments,
+      interests: current.interests,
+      deposit: current.deposit,
+      referralChannel: current.referralChannel,
+      note: current.note,
+      createdBy: current.createdBy,
+      createdAt: current.createdAt,
+      previousAppointmentId: current.previousAppointmentId,
+    },
+    history: history.map((h: any) => ({
+      _id: h._id,
+      patient: h.patient,
+      clinic: h.clinic,
+      appointments: h.appointments,
+      procedures: h.procedures,
+      payments: h.payments,
+      interests: h.interests,
+      deposit: h.deposit,
+      referralChannel: h.referralChannel,
+      note: h.note,
+      createdBy: h.createdBy,
+      createdAt: h.createdAt,
+      previousAppointmentId: h.previousAppointmentId,
+    })),
+    totalVisits: history.length + 1
+  };
+};
+
+export const getNextAppointments = async (
+  appointmentId: string,
+  clinicId: number
+) => {
+  return AppointmentModel.find({
+    previousAppointmentId: new Types.ObjectId(appointmentId),
+    "clinic.clinicId": clinicId
+  }).sort({ createdAt: 1 });
 };
 
 export const updateLeadById = async (

@@ -39,6 +39,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+app.use("/lead/v1/api/uploads", express.static(path.join(__dirname, "../uploads")));
+
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use("/lead/v1/auth", authroute)

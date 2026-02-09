@@ -5,6 +5,8 @@ import {
   findLeadById,
   updateLeadById,
   deleteLeadById,
+  getAppointmentHistory,
+  getNextAppointments,
 } from "../services/lead.service";
 import { AuthRequest } from "../middleware/auth.middlware";
 
@@ -168,6 +170,52 @@ export const deleteLeadController = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     res.status(400).json({
       message: "Delete lead failed",
+      error: error.message,
+    });
+  }
+};
+
+export const getLeadHistoryController = async (req: AuthRequest, res: Response) => {
+  try {
+    const clinicId = req.user?.clinicId;
+
+    if (!clinicId) {
+      return res.status(401).json({
+        message: "Unauthorized: clinicId not found",
+      });
+    }
+
+    const result = await getAppointmentHistory(req.params.id, clinicId);
+
+    if (!result) {
+      return res.status(404).json({ message: "Lead not found" });
+    }
+
+    res.status(200).json({ data: result });
+  } catch (error: any) {
+    res.status(400).json({
+      message: "Get lead history failed",
+      error: error.message,
+    });
+  }
+};
+
+export const getNextLeadsController = async (req: AuthRequest, res: Response) => {
+  try {
+    const clinicId = req.user?.clinicId;
+
+    if (!clinicId) {
+      return res.status(401).json({
+        message: "Unauthorized: clinicId not found",
+      });
+    }
+
+    const nextAppointments = await getNextAppointments(req.params.id, clinicId);
+
+    res.status(200).json({ data: nextAppointments });
+  } catch (error: any) {
+    res.status(400).json({
+      message: "Get next leads failed",
       error: error.message,
     });
   }
