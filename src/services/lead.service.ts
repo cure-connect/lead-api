@@ -18,7 +18,7 @@ interface CreateLeadInput {
     status: AppointmentStatus;
     date?: Date | string;
   };
-  interests?: Array<{ interestId?: string; name: string; price: string }>;
+  interests?: Array<{ interestId?: string; name: string }>;
   procedures?: Array<{ name: string; price: string }>;
   deposit?: {
     amount: number;
@@ -61,7 +61,6 @@ export const createLead = async (
     interests: data.interests?.map((i) => ({
       interestId: i.interestId,
       name: i.name,
-      price: i.price,
     })),
 
     procedures: data.procedures?.map((p) => ({
@@ -85,11 +84,31 @@ export const createLead = async (
   const lead = new AppointmentModel(leadData);
   await lead.save();
 
+  if (data.previousAppointmentId) {
+    await AppointmentModel.findByIdAndUpdate(
+      data.previousAppointmentId,
+      { $set: { nextAppointmentId: lead._id } }
+    );
+  }
+
   return lead;
 };
 
-export const findLeads = (clinicId: number) => {
-  return AppointmentModel.find({ "clinic.clinicId": clinicId }).sort({ createdAt: -1 });
+export const findLeads = (clinicId: number, year?: string) => {
+  const query: any = { "clinic.clinicId": clinicId };
+
+  // ถ้ามี year parameter ให้ filter ตามปี
+  if (year) {
+    const startDate = new Date(`${year}-01-01T00:00:00.000Z`);
+    const endDate = new Date(`${parseInt(year) + 1}-01-01T00:00:00.000Z`);
+
+    query.$or = [
+      { createdAt: { $gte: startDate, $lt: endDate } },
+      { "appointments.date": { $gte: startDate, $lt: endDate } }
+    ];
+  }
+
+  return AppointmentModel.find(query).sort({ createdAt: -1 });
 };
 
 export const findLeadById = (id: string, clinicId: number) => {
@@ -256,6 +275,24 @@ export const updateLeadById = async (
   );
 };
 
-export const deleteLeadById = (id: string, clinicId: number) => {
+export const deleteLeadById = async (id: string, clinicId: number) => {
+  const leadToDelete = await AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId });
+
+  if (!leadToDelete) return null;
+
+  if (leadToDelete.previousAppointmentId) {
+    await AppointmentModel.findByIdAndUpdate(
+      leadToDelete.previousAppointmentId,
+      { $unset: { nextAppointmentId: 1 } }
+    );
+  }
+
+  if (leadToDelete.nextAppointmentId) {
+    await AppointmentModel.findByIdAndUpdate(
+      leadToDelete.nextAppointmentId,
+      { $unset: { previousAppointmentId: 1 } }
+    );
+  }
+
   return AppointmentModel.findOneAndDelete({ _id: id, "clinic.clinicId": clinicId });
 };

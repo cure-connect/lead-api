@@ -69,8 +69,10 @@ export const getLeadsController = async (req: AuthRequest, res: Response) => {
         message: "Unauthorized: clinicId not found",
       });
     }
+    
+    const year = req.query.year as string | undefined;
 
-    const leads = await findLeads(clinicId);
+    const leads = await findLeads(clinicId, year);
 
     res.status(200).json({
       data: leads,

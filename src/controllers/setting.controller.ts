@@ -76,7 +76,7 @@ export const getAllSettingController = async (req: AuthRequest, res: Response) =
             branches,
             channels,
         });
-        
+
     } catch (err: any) {
         console.log('error', err)
         res.status(500).json({ message: err.message });

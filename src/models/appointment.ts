@@ -2,6 +2,7 @@ import { Schema, model, Document, Types } from "mongoose";
 
 export interface LeadDocument extends Document {
   previousAppointmentId?: Types.ObjectId;
+  nextAppointmentId?: Types.ObjectId;
 
   clinic: {
     clinicId: number;
@@ -20,7 +21,6 @@ export interface LeadDocument extends Document {
   interests?: {
     interestId: string;
     name: string;
-    price: string;
   }[];
   payments?: {
     method: "cash" | "transfer" | "card";
@@ -63,6 +63,11 @@ const AppointmentSchema = new Schema<LeadDocument>(
       ref: "Appointment",
       index: true
     },
+    nextAppointmentId: {
+      type: Schema.Types.ObjectId,
+      ref: "Appointment",
+      index: true
+    },
 
     clinic: {
       clinicId: { type: Number, required: true, index: true },
@@ -94,7 +99,6 @@ const AppointmentSchema = new Schema<LeadDocument>(
       {
         interestId: { type: String },
         name: { type: String, required: true },
-        price: { type: String, required: true },
       },
     ],
 

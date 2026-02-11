@@ -19,12 +19,6 @@ const SettingSchema = new Schema(
       type: String,
       required: true
     },
-    price: {
-      type: Number,
-      required: function (this: { type: SettingType }) {
-        return this.type === "interest";
-      }
-    }
   },
   {
     timestamps: true
