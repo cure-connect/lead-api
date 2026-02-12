@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { uploadSlipController } from "../controllers/upload.controller";
+import { uploadSlipController, uploadReceiptController } from "../controllers/upload.controller";
 import { apiKeyMiddleware, authMiddleware } from "../middleware/auth.middlware";
-import { uploadSlip } from "../middleware/upload.middleware";
+import { uploadSlip, uploadReceipt } from "../middleware/upload.middleware";
 
 const router = Router();
 
@@ -11,5 +11,6 @@ router.use(apiKeyMiddleware(API_KEY));
 router.use(authMiddleware);
 
 router.post("/upload/slip", uploadSlip.single("slip"), uploadSlipController);
+router.post("/upload/receipt", uploadReceipt.single("receipt"), uploadReceiptController);
 
 export default router;
