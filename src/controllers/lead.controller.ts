@@ -69,7 +69,7 @@ export const getLeadsController = async (req: AuthRequest, res: Response) => {
         message: "Unauthorized: clinicId not found",
       });
     }
-    
+
     const year = req.query.year as string | undefined;
 
     const leads = await findLeads(clinicId, year);
@@ -121,7 +121,6 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
 
     const leadId = req.params.id;
 
-    // รองรับทั้ง multipart/form-data และ JSON
     let updateData: any;
 
     if (req.file) {

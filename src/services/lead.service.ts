@@ -10,9 +10,10 @@ interface CreateLeadInput {
     branch: string;
   };
   patient: {
-    name: string;
+    fullname: string;
+    nickname?: string;
     tel?: string;
-    lineId?: string;
+    socialMedia?: string;
   };
   appointments: {
     status: AppointmentStatus;
@@ -24,6 +25,7 @@ interface CreateLeadInput {
     amount: number;
     slipUrl: string;
   };
+  receiptUrl?: string;
   referralChannel?: string;
   note?: string;
   createdBy: string;
@@ -45,9 +47,10 @@ export const createLead = async (
       : {}),
 
     patient: {
-      name: data.patient.name,
+      fullname: data.patient.fullname,
       tel: data.patient.tel || "",
-      ...(data.patient.lineId ? { lineId: data.patient.lineId } : {}),
+      ...(data.patient.nickname ? { nickname: data.patient.nickname } : {}),
+      ...(data.patient.socialMedia ? { socialMedia: data.patient.socialMedia } : {}),
     },
 
     clinic: {
@@ -71,6 +74,8 @@ export const createLead = async (
     ...(data.deposit?.amount && data.deposit?.slipUrl
       ? { deposit: { amount: data.deposit.amount, slipUrl: data.deposit.slipUrl } }
       : {}),
+
+    ...(data.receiptUrl ? { receiptUrl: data.receiptUrl } : {}),
 
     referralChannel: data.referralChannel,
     note: data.note,
@@ -97,7 +102,6 @@ export const createLead = async (
 export const findLeads = (clinicId: number, year?: string) => {
   const query: any = { "clinic.clinicId": clinicId };
 
-  // ถ้ามี year parameter ให้ filter ตามปี
   if (year) {
     const startDate = new Date(`${year}-01-01T00:00:00.000Z`);
     const endDate = new Date(`${parseInt(year) + 1}-01-01T00:00:00.000Z`);
@@ -161,6 +165,7 @@ export const getAppointmentHistory = async (
       payments: current.payments,
       interests: current.interests,
       deposit: current.deposit,
+      receiptUrl: current.receiptUrl,
       referralChannel: current.referralChannel,
       note: current.note,
       createdBy: current.createdBy,
@@ -176,6 +181,7 @@ export const getAppointmentHistory = async (
       payments: h.payments,
       interests: h.interests,
       deposit: h.deposit,
+      receiptUrl: h.receiptUrl,
       referralChannel: h.referralChannel,
       note: h.note,
       createdBy: h.createdBy,
@@ -210,9 +216,10 @@ export const updateLeadById = async (
   }
 
   if (body.patient) {
-    if (body.patient.name !== undefined) $set["patient.name"] = body.patient.name;
+    if (body.patient.fullname !== undefined) $set["patient.fullname"] = body.patient.fullname;
+    if (body.patient.nickname !== undefined) $set["patient.nickname"] = body.patient.nickname;
     if (body.patient.tel !== undefined) $set["patient.tel"] = body.patient.tel;
-    if (body.patient.lineId !== undefined) $set["patient.lineId"] = body.patient.lineId;
+    if (body.patient.socialMedia !== undefined) $set["patient.socialMedia"] = body.patient.socialMedia;
   }
 
   if (body.appointments) {
@@ -256,6 +263,14 @@ export const updateLeadById = async (
     } else {
       if (body.deposit.amount !== undefined) $set["deposit.amount"] = body.deposit.amount;
       if (body.deposit.slipUrl !== undefined) $set["deposit.slipUrl"] = body.deposit.slipUrl;
+    }
+  }
+
+  if (body.receiptUrl !== undefined) {
+    if (body.receiptUrl === null) {
+      $unset["receiptUrl"] = 1;
+    } else {
+      $set["receiptUrl"] = body.receiptUrl;
     }
   }
 

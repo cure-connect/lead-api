@@ -10,9 +10,10 @@ export interface LeadDocument extends Document {
     branch: string;
   };
   patient: {
-    name: string;
+    fullname: string;
+    nickname?: string;
     tel: string;
-    lineId?: string;
+    socialMedia?: string;
   };
   appointments: {
     status: "pending" | "scheduled" | "rescheduled" | "cancelled" | "arrived";
@@ -49,6 +50,7 @@ export interface LeadDocument extends Document {
     amount: number;
     slipUrl: string;
   };
+  receiptUrl?: string;
 
   referralChannel?: string;
   note?: string;
@@ -76,9 +78,10 @@ const AppointmentSchema = new Schema<LeadDocument>(
     },
 
     patient: {
-      name: { type: String, required: true },
+      fullname: { type: String, required: true },
+      nickname: { type: String },
       tel: { type: String },
-      lineId: { type: String },
+      socialMedia: { type: String },
     },
 
     appointments: {
@@ -142,6 +145,8 @@ const AppointmentSchema = new Schema<LeadDocument>(
       amount: { type: Number },
       slipUrl: { type: String },
     },
+
+    receiptUrl: { type: String },
 
     referralChannel: { type: String },
     note: { type: String },
