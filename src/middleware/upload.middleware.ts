@@ -41,3 +41,5 @@ const createUploader = (folderName: string, filePrefix: string) => {
 
 export const uploadSlip = createUploader("slips", "slip");
 export const uploadReceipt = createUploader("receipts", "receipt");
+
+export const MAX_FILES = 5;

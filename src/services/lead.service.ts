@@ -23,9 +23,11 @@ interface CreateLeadInput {
   procedures?: Array<{ name: string; price: string }>;
   deposit?: {
     amount: number;
-    slipUrl: string;
+    slipUrl?: string;
+    slipUrls?: string[];
   };
   receiptUrl?: string;
+  receiptUrls?: string[];
   referralChannel?: string;
   note?: string;
   createdBy: string;
@@ -40,6 +42,19 @@ export const createLead = async (
     data.appointments.status === "scheduled" &&
     !!data.appointments.date &&
     !isNaN(new Date(data.appointments.date).getTime());
+
+  let depositData: any = undefined;
+  if (data.deposit?.amount) {
+    depositData = {
+      amount: data.deposit.amount,
+    };
+
+    if (data.deposit.slipUrls && data.deposit.slipUrls.length > 0) {
+      depositData.slipUrls = data.deposit.slipUrls;
+    } else if (data.deposit.slipUrl) {
+      depositData.slipUrls = [data.deposit.slipUrl];
+    }
+  }
 
   const leadData: any = {
     ...(data.previousAppointmentId
@@ -71,11 +86,13 @@ export const createLead = async (
       price: p.price,
     })),
 
-    ...(data.deposit?.amount && data.deposit?.slipUrl
-      ? { deposit: { amount: data.deposit.amount, slipUrl: data.deposit.slipUrl } }
-      : {}),
+    ...(depositData ? { deposit: depositData } : {}),
 
-    ...(data.receiptUrl ? { receiptUrl: data.receiptUrl } : {}),
+    ...(data.receiptUrls && data.receiptUrls.length > 0
+      ? { receiptUrls: data.receiptUrls }
+      : data.receiptUrl
+        ? { receiptUrls: [data.receiptUrl] }
+        : {}),
 
     referralChannel: data.referralChannel,
     note: data.note,
@@ -166,6 +183,7 @@ export const getAppointmentHistory = async (
       interests: current.interests,
       deposit: current.deposit,
       receiptUrl: current.receiptUrl,
+      receiptUrls: current.receiptUrls,
       referralChannel: current.referralChannel,
       note: current.note,
       createdBy: current.createdBy,
@@ -182,6 +200,7 @@ export const getAppointmentHistory = async (
       interests: h.interests,
       deposit: h.deposit,
       receiptUrl: h.receiptUrl,
+      receiptUrls: h.receiptUrls,
       referralChannel: h.referralChannel,
       note: h.note,
       createdBy: h.createdBy,
@@ -262,15 +281,26 @@ export const updateLeadById = async (
       $unset["deposit"] = 1;
     } else {
       if (body.deposit.amount !== undefined) $set["deposit.amount"] = body.deposit.amount;
-      if (body.deposit.slipUrl !== undefined) $set["deposit.slipUrl"] = body.deposit.slipUrl;
+
+      if (body.deposit.slipUrls !== undefined) {
+        $set["deposit.slipUrls"] = body.deposit.slipUrls;
+      } else if (body.deposit.slipUrl !== undefined) {
+        $set["deposit.slipUrls"] = [body.deposit.slipUrl];
+      }
     }
   }
 
-  if (body.receiptUrl !== undefined) {
-    if (body.receiptUrl === null) {
-      $unset["receiptUrl"] = 1;
+  if (body.receiptUrls !== undefined) {
+    if (body.receiptUrls === null || body.receiptUrls.length === 0) {
+      $unset["receiptUrls"] = 1;
     } else {
-      $set["receiptUrl"] = body.receiptUrl;
+      $set["receiptUrls"] = body.receiptUrls;
+    }
+  } else if (body.receiptUrl !== undefined) {
+    if (body.receiptUrl === null) {
+      $unset["receiptUrls"] = 1;
+    } else {
+      $set["receiptUrls"] = [body.receiptUrl];
     }
   }
 

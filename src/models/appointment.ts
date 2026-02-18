@@ -24,7 +24,7 @@ export interface LeadDocument extends Document {
     name: string;
   }[];
   payments?: {
-    method: "cash" | "transfer" | "card";
+    method: "cash" | "transfer" | "card" | "free";
     amount: number;
     serviceCharge?: {
       rate: number;
@@ -48,9 +48,11 @@ export interface LeadDocument extends Document {
   }[];
   deposit?: {
     amount: number;
-    slipUrl: string;
+    slipUrl?: string;
+    slipUrls?: string[];
   };
   receiptUrl?: string;
+  receiptUrls?: string[];
 
   referralChannel?: string;
   note?: string;
@@ -108,7 +110,7 @@ const AppointmentSchema = new Schema<LeadDocument>(
     payments: {
       method: {
         type: String,
-        enum: ["cash", "transfer", "card"],
+        enum: ["cash", "transfer", "card", "free"],
         required: false,
       },
       amount: {
@@ -144,9 +146,11 @@ const AppointmentSchema = new Schema<LeadDocument>(
     deposit: {
       amount: { type: Number },
       slipUrl: { type: String },
+      slipUrls: [{ type: String }],
     },
 
     receiptUrl: { type: String },
+    receiptUrls: [{ type: String }],
 
     referralChannel: { type: String },
     note: { type: String },
