@@ -8,6 +8,8 @@ import {
   getAppointmentHistory,
   getNextAppointments,
 } from "../services/lead.service";
+import { findOrCreatePatient, addDeposit, useDeposit } from "../services/patient.service";
+import { logActivity } from "../services/activity.service";
 import { AuthRequest } from "../middleware/auth.middlware";
 
 export const createLeadController = async (req: AuthRequest, res: Response) => {
@@ -15,6 +17,7 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
     const clinicId = req.user?.clinicId;
     const clinicName = req.user?.clinicName;
     const branch = req.user?.branch;
+    const username = req.user?.username;
 
     if (!clinicId) {
       return res.status(401).json({
@@ -30,7 +33,7 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
       body = req.body;
     }
 
-    let deposit: { amount: number; slipUrl: string } | undefined;
+    let deposit: { amount: number; slipUrl?: string; slipUrls?: string[] } | undefined;
 
     if (req.file && body.depositAmount) {
       const slipUrl = `/uploads/slips/${req.file.filename}`;
@@ -38,10 +41,38 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
         amount: Number(body.depositAmount),
         slipUrl,
       };
+    } else if (body.deposit && body.deposit.amount > 0) {
+      deposit = body.deposit;
     }
 
+    // ============================================
+    // Find or Create Patient
+    // ============================================
+    const patientData = body.patient || {};
+    const patient = await findOrCreatePatient(
+      clinicId,
+      {
+        patientId: patientData.patientId,
+        fullname: patientData.fullname,
+        nickname: patientData.nickname,
+        tel: patientData.tel,
+        socialMedia: patientData.socialMedia,
+      },
+      username
+    );
+
+    // ============================================
+    // สร้าง Lead พร้อม patientId
+    // ============================================
     const leadData = {
       ...body,
+      patientId: patient._id,
+      patient: {
+        fullname: patient.fullname,
+        nickname: patient.nickname,
+        tel: patient.tel || patientData.tel,
+        socialMedia: patient.socialMedia || patientData.socialMedia,
+      },
       clinic: {
         clinicId,
         name: clinicName || body.clinic?.name,
@@ -51,6 +82,41 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
     };
 
     const lead = await createLead(leadData);
+
+    // ============================================
+    // เพิ่มเงินมัดจำเข้า Patient Wallet
+    // ============================================
+    if (deposit && deposit.amount > 0) {
+      try {
+        await addDeposit(patient._id.toString(), clinicId, deposit.amount, {
+          description: `เพิ่มเงินมัดจำจาก Lead: ${patient.fullname}`,
+          appointmentId: lead._id.toString(),
+          createdBy: username,
+        });
+      } catch (err: any) {
+        console.error("Failed to add deposit to patient wallet:", err.message);
+      }
+    }
+
+    await logActivity({
+      userId: clinicId.toString(),
+      userName: username || "unknown",
+      action: "create",
+      resource: "lead",
+      resourceId: lead._id.toString(),
+      resourceName: patient.fullname,
+      description: `สร้าง Lead: ${patient.fullname}`,
+      metadata: {
+        patientId: patient._id.toString(),
+        status: lead.appointments?.status,
+        interests: body.interests?.map((i: any) => i.name),
+        depositAmount: deposit?.amount,
+      },
+      clinicId,
+      clinicName,
+      req,
+    });
+
     res.status(201).json({ data: lead });
   } catch (error: any) {
     res.status(400).json({
@@ -112,6 +178,8 @@ export const getLeadByIdController = async (req: AuthRequest, res: Response) => 
 export const updateLeadController = async (req: AuthRequest, res: Response) => {
   try {
     const clinicId = req.user?.clinicId;
+    const clinicName = req.user?.clinicName;
+    const username = req.user?.username;
 
     if (!clinicId) {
       return res.status(401).json({
@@ -120,6 +188,12 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
     }
 
     const leadId = req.params.id;
+
+    // ดึงข้อมูลเดิมก่อน update
+    const oldLead = await findLeadById(leadId, clinicId);
+    if (!oldLead) {
+      return res.status(404).json({ message: "Lead not found" });
+    }
 
     let updateData: any;
 
@@ -136,11 +210,153 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
       updateData = req.body;
     }
 
+    // ============================================
+    // ถ้ามีการเปลี่ยน patient → findOrCreate ใหม่
+    // ============================================
+    if (updateData.patient?.fullname) {
+      const patientData = updateData.patient;
+      const patient = await findOrCreatePatient(
+        clinicId,
+        {
+          patientId: patientData.patientId || (oldLead as any).patientId,
+          fullname: patientData.fullname,
+          nickname: patientData.nickname,
+          tel: patientData.tel,
+          socialMedia: patientData.socialMedia,
+        },
+        username
+      );
+
+      updateData.patientId = patient._id;
+      updateData.patient = {
+        fullname: patient.fullname,
+        nickname: patient.nickname,
+        tel: patient.tel || patientData.tel,
+        socialMedia: patient.socialMedia || patientData.socialMedia,
+      };
+    }
+
+    // ============================================
+    // จัดการเงินมัดจำใน Patient Wallet
+    // ============================================
+    const patientId = updateData.patientId || (oldLead as any).patientId;
+
+    // กรณีเพิ่ม/แก้ไข deposit ใน lead (ตอนสร้างนัด)
+    if (updateData.deposit && updateData.deposit.amount > 0) {
+      const oldDepositAmount = (oldLead as any).deposit?.amount || 0;
+      const newDepositAmount = updateData.deposit.amount;
+      const diff = newDepositAmount - oldDepositAmount;
+
+      if (diff > 0 && patientId) {
+        try {
+          await addDeposit(patientId.toString(), clinicId, diff, {
+            description: `เพิ่มเงินมัดจำจาก Lead: ${updateData.patient?.fullname || (oldLead as any).patient?.fullname}`,
+            appointmentId: leadId,
+            createdBy: username,
+          });
+        } catch (err: any) {
+          console.error("Failed to add deposit to patient wallet:", err.message);
+        }
+      }
+    }
+
+    // กรณีใช้เงินมัดจำ (จากฟอร์มมาตามนัด — คำนวณจาก procedures)
+    const totalDepositUsed = Array.isArray(updateData.procedures)
+      ? updateData.procedures.reduce((sum: number, p: any) => sum + (Number(p.depositUsed) || 0), 0)
+      : 0;
+
+    if (totalDepositUsed > 0 && patientId) {
+      try {
+        await useDeposit(patientId.toString(), clinicId, totalDepositUsed, {
+          description: `ใช้เงินมัดจำสำหรับหัตถการ - ${updateData.patient?.fullname || (oldLead as any).patient?.fullname}`,
+          appointmentId: leadId,
+          createdBy: username,
+        });
+      } catch (err: any) {
+        console.error("Failed to use deposit from patient wallet:", err.message);
+        // ถ้า balance ไม่พอ ส่ง error กลับ
+        if (err.message.includes("Insufficient balance")) {
+          return res.status(400).json({
+            message: "ยอดเงินมัดจำไม่เพียงพอ",
+            error: err.message,
+          });
+        }
+      }
+    }
+
     const updatedLead = await updateLeadById(leadId, clinicId, updateData);
 
     if (!updatedLead) {
       return res.status(404).json({ message: "Lead not found" });
     }
+
+    const changes: Array<{ field: string; oldValue: any; newValue: any }> = [];
+
+    // ตรวจสอบ status change
+    if (updateData.appointments?.status &&
+      oldLead.appointments?.status !== updateData.appointments.status) {
+      changes.push({
+        field: "status",
+        oldValue: oldLead.appointments?.status,
+        newValue: updateData.appointments.status,
+      });
+    }
+
+    // ตรวจสอบ appointment date change
+    if (updateData.appointments?.date) {
+      changes.push({
+        field: "appointmentDate",
+        oldValue: oldLead.appointments?.date,
+        newValue: updateData.appointments.date,
+      });
+    }
+
+    // ตรวจสอบ patient name change
+    if (updateData.patient?.fullname &&
+      oldLead.patient?.fullname !== updateData.patient.fullname) {
+      changes.push({
+        field: "patient.fullname",
+        oldValue: oldLead.patient?.fullname,
+        newValue: updateData.patient.fullname,
+      });
+    }
+
+    // ตรวจสอบ payment change
+    if (updateData.payments?.amount !== undefined) {
+      changes.push({
+        field: "payments.amount",
+        oldValue: oldLead.payments?.amount,
+        newValue: updateData.payments.amount,
+      });
+    }
+
+    // ตรวจสอบ deposit used change
+    if (totalDepositUsed > 0) {
+      changes.push({
+        field: "depositUsed",
+        oldValue: 0,
+        newValue: totalDepositUsed,
+      });
+    }
+
+    const isStatusChange = changes.some(c => c.field === "status");
+
+    await logActivity({
+      userId: clinicId.toString(),
+      userName: username || "unknown",
+      action: isStatusChange ? "status_change" : "update",
+      resource: "lead",
+      resourceId: leadId,
+      resourceName: updatedLead.patient?.fullname || oldLead.patient?.fullname,
+      description: isStatusChange
+        ? `เปลี่ยนสถานะ Lead: ${oldLead.patient?.fullname} (${oldLead.appointments?.status} → ${updateData.appointments?.status})`
+        : `แก้ไข Lead: ${oldLead.patient?.fullname}`,
+      changes: changes.length > 0 ? changes : undefined,
+      metadata: totalDepositUsed > 0 ? { depositUsed: totalDepositUsed } : undefined,
+      clinicId,
+      clinicName,
+      req,
+    });
 
     res.status(200).json({ data: updatedLead });
   } catch (error: any) {
@@ -154,6 +370,8 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
 export const deleteLeadController = async (req: AuthRequest, res: Response) => {
   try {
     const clinicId = req.user?.clinicId;
+    const clinicName = req.user?.clinicName;
+    const username = req.user?.username;
 
     if (!clinicId) {
       return res.status(401).json({
@@ -161,11 +379,34 @@ export const deleteLeadController = async (req: AuthRequest, res: Response) => {
       });
     }
 
+    // ดึงข้อมูลก่อนลบ
+    const leadToDelete = await findLeadById(req.params.id, clinicId);
+
     const lead = await deleteLeadById(req.params.id, clinicId);
 
     if (!lead) {
       return res.status(404).json({ message: "Lead not found" });
     }
+
+    await logActivity({
+      userId: clinicId.toString(),
+      userName: username || "unknown",
+      action: "delete",
+      resource: "lead",
+      resourceId: req.params.id,
+      resourceName: leadToDelete?.patient?.fullname,
+      description: `ลบ Lead: ${leadToDelete?.patient?.fullname}`,
+      metadata: {
+        deletedData: {
+          patient: leadToDelete?.patient,
+          status: leadToDelete?.appointments?.status,
+          interests: leadToDelete?.interests,
+        },
+      },
+      clinicId,
+      clinicName,
+      req,
+    });
 
     res.status(200).json({ message: "Lead deleted successfully" });
   } catch (error: any) {

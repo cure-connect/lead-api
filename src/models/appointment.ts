@@ -4,6 +4,9 @@ export interface LeadDocument extends Document {
   previousAppointmentId?: Types.ObjectId;
   nextAppointmentId?: Types.ObjectId;
 
+  // === Patient Reference ===
+  patientId?: Types.ObjectId;
+
   clinic: {
     clinicId: number;
     name: string;
@@ -45,6 +48,7 @@ export interface LeadDocument extends Document {
     name: string;
     price: string;
     commissionRate?: number;
+    depositUsed?: number;
   }[];
   deposit?: {
     amount: number;
@@ -71,6 +75,13 @@ const AppointmentSchema = new Schema<LeadDocument>(
       type: Schema.Types.ObjectId,
       ref: "Appointment",
       index: true
+    },
+
+    // === Patient Reference ===
+    patientId: {
+      type: Schema.Types.ObjectId,
+      ref: "Patient",
+      index: true,
     },
 
     clinic: {
@@ -140,6 +151,7 @@ const AppointmentSchema = new Schema<LeadDocument>(
         name: { type: String, required: true },
         price: { type: String, required: true },
         commissionRate: { type: Number },
+        depositUsed: { type: Number },
       },
     ],
 
@@ -161,6 +173,9 @@ const AppointmentSchema = new Schema<LeadDocument>(
     versionKey: false,
   }
 );
+
+// Compound index: ดึง appointments ทั้งหมดของ patient ใน clinic
+AppointmentSchema.index({ "clinic.clinicId": 1, patientId: 1 });
 
 export const AppointmentModel = model<LeadDocument>(
   "Appointment",

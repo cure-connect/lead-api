@@ -9,6 +9,9 @@ import settingroute from "./routes/setting.route"
 import userroute from "./routes/user.route"
 import authroute from "./routes/auth.route"
 import uploadroute from "./routes/upload.route"
+import patientroute from "./routes/patient.route";
+// import externalApiRoutes from "./external";
+// import apiKeyRoutes from "./routes/api-key.route";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 
@@ -43,7 +46,12 @@ app.use("/lead/v1/api/uploads", express.static(path.join(__dirname, "../uploads"
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+// app.use("/lead/external/v1/api", externalApiRoutes);
+
+// app.use("/lead/v1/api-keys", apiKeyRoutes);
+
 app.use("/lead/v1/auth", authroute)
+app.use("/lead/v1/api", patientroute)
 app.use("/lead/v1/api", leadroute)
 app.use("/lead/v1/api", settingroute)
 app.use("/lead/v1/api", userroute)

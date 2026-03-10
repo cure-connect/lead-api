@@ -8,6 +8,12 @@ export interface UserDocument extends Document {
   clinicName: string;
   branch: string;
   expired?: Date;
+  features?: {
+    procedure?: {
+      enabled?: Boolean;
+      allowCustom?: Boolean
+    },
+  },
   createdAt: Date;
   updatedAt: Date;
 
@@ -48,6 +54,19 @@ const UserSchema = new Schema<UserDocument>(
       type: Date,
       default: null,
       require: false
+    },
+
+    features: {
+      procedure: {
+        enabled: {
+          type: Boolean,
+          default: false,
+        },
+        allowCustom: {
+          type: Boolean,
+          default: true,
+        },
+      },
     },
   },
   {

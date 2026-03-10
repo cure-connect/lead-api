@@ -1,5 +1,12 @@
 import { Router } from "express";
-import { createSettingController, deleteSettingController, editSettingController, getAllSettingController } from "../controllers/setting.controller";
+import {
+  createSettingController,
+  deleteSettingController,
+  editSettingController,
+  getAllSettingController,
+  toggleFeatureController,
+  getConfigController,
+} from "../controllers/setting.controller";
 import { apiKeyMiddleware, authMiddleware } from "../middleware/auth.middlware";
 
 const router = Router();
@@ -7,8 +14,6 @@ const router = Router();
 const API_KEY = process.env.API_KEY as string;
 
 router.use(apiKeyMiddleware(API_KEY));
-
-router.post('/setting/create', createSettingController)
 
 /**
  * @swagger
@@ -33,12 +38,11 @@ router.post('/setting/create', createSettingController)
  *           schema:
  *             type: object
  *             properties:
- *               key:
+ *               type:
  *                 type: string
- *                 example: lead_type
- *               value:
+ *                 enum: [admin, branch, channel, interest, procedure]
+ *               name:
  *                 type: string
- *                 example: hot
  *     responses:
  *       201:
  *         description: Setting created
@@ -50,15 +54,59 @@ router.post("/setting/createsetting", authMiddleware, createSettingController);
  * /lead/v1/api/setting/gettype:
  *   get:
  *     tags: [Setting]
- *     summary: Get all setting types
+ *     summary: Get all setting types with config
  *     security:
  *       - ApiKeyAuth: []
  *       - BearerAuth: []
  *     responses:
  *       200:
- *         description: List of settings
+ *         description: List of settings with config
  */
 router.get("/setting/gettype", authMiddleware, getAllSettingController);
+
+/**
+ * @swagger
+ * /lead/v1/api/setting/config:
+ *   get:
+ *     tags: [Setting]
+ *     summary: Get clinic config (feature toggles)
+ *     security:
+ *       - ApiKeyAuth: []
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Clinic config
+ */
+router.get("/setting/config", authMiddleware, getConfigController);
+
+/**
+ * @swagger
+ * /lead/v1/api/setting/config/toggle:
+ *   patch:
+ *     tags: [Setting]
+ *     summary: Toggle feature on/off
+ *     security:
+ *       - ApiKeyAuth: []
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               feature:
+ *                 type: string
+ *                 enum: [procedure]
+ *               enabled:
+ *                 type: boolean
+ *               allowCustom:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Feature toggled
+ */
+router.patch("/setting/config/toggle", authMiddleware, toggleFeatureController);
 
 /**
  * @swagger
@@ -82,7 +130,9 @@ router.get("/setting/gettype", authMiddleware, getAllSettingController);
  *           schema:
  *             type: object
  *             properties:
- *               value:
+ *               type:
+ *                 type: string
+ *               name:
  *                 type: string
  *     responses:
  *       200:
@@ -109,10 +159,6 @@ router.patch("/setting/editsetting/:id", authMiddleware, editSettingController);
  *       200:
  *         description: Setting deleted
  */
-router.delete(
-  "/setting/deletesetting/:id",
-  authMiddleware,
-  deleteSettingController
-);
+router.delete("/setting/deletesetting/:id", authMiddleware, deleteSettingController);
 
 export default router;
