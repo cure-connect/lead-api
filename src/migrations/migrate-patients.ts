@@ -1,359 +1,393 @@
 /**
- * Migration Script: สร้าง Patient จาก Leads เก่า + ย้าย Deposit เข้า Patient Wallet
+ * Migration Script: แก้ Patient.createdAt ให้ตรงกับ lead แรกสุดของคนไข้
  * 
  * วิธีใช้:
- *   npx ts-node scripts/migrate-patients.ts
- *   หรือ
- *   npx tsx scripts/migrate-patients.ts
+ *   npx tsx scripts/fix-patient-created-at.ts
  * 
  * ⚠️ ควร backup database ก่อนรัน
  * 
- * สิ่งที่ script ทำ:
- *   1. ดึง leads ทั้งหมดที่ยังไม่มี patientId
- *   2. Group by (tel + clinicId) เพื่อระบุ "คนไข้คนเดียวกัน"
- *   3. สร้าง Patient record (ถ้ายังไม่มี)
- *   4. ผูก patientId กลับเข้า leads ทั้งหมดของคนไข้คนนั้น
- *   5. ย้าย deposit จาก leads เข้า Patient wallet (balance + transactions)
+ * ปัญหา:
+ *   - ตอน migrate-patients.ts สร้าง Patient record ใหม่
+ *   - Patient.createdAt กลายเป็นวันที่ migrate ไม่ใช่วันที่คนไข้เข้ามาครั้งแรก
+ * 
+ * แก้:
+ *   - หา lead แรกสุด (createdAt เก่าสุด) ของแต่ละ patient
+ *   - อัพเดท Patient.createdAt ให้ตรงกับ lead แรกสุด
+ */
+
+/**
+ * Migration Script: แก้ Patient.createdAt + เพิ่มข้อมูลจาก lead แรกสุด
+ *
+ * วิธีใช้:
+ *   npx tsx scripts/fix-patient-data.ts
+ *
+ * ⚠️ ควร backup database ก่อนรัน
+ *
+ * สิ่งที่ทำ:
+ *   1. หา lead แรกสุด (createdAt เก่าสุด) ของแต่ละ patient
+ *   2. อัพเดท Patient.createdAt → ตรงกับวันที่เข้ามาครั้งแรก
+ *   3. อัพเดท Patient.interest → จาก interests[0].name ของ lead แรก
+ *   4. อัพเดท Patient.referralChannel → จาก referralChannel ของ lead แรก
+ *   5. อัพเดท Patient.createdBy → จาก createdBy ของ lead แรก
+ *   6. อัพเดท Patient.branch → จาก clinic.branch ของ lead แรก
+ */
+
+// import mongoose from "mongoose";
+// import dotenv from "dotenv";
+// dotenv.config();
+
+// // Appointment Model
+// const AppointmentSchema = new mongoose.Schema(
+//     {
+//         patientId: { type: mongoose.Schema.Types.ObjectId, index: true },
+//         clinic: { clinicId: Number, name: String, branch: String },
+//         patient: { fullname: String, nickname: String, tel: String },
+//         appointments: { status: String, date: Date },
+//         interests: [{ name: String }],
+//         referralChannel: String,
+//         createdBy: String,
+//     },
+//     { timestamps: true, versionKey: false, strict: false }
+// );
+// const Appointment = mongoose.model("Appointment", AppointmentSchema);
+
+// // Patient Model
+// const PatientSchema = new mongoose.Schema(
+//     {
+//         clinicId: Number,
+//         fullname: String,
+//         interest: String,
+//         referralChannel: String,
+//         createdBy: String,
+//         branch: String,
+//     },
+//     { timestamps: true, versionKey: false, strict: false }
+// );
+// const Patient = mongoose.model("Patient", PatientSchema);
+
+// async function migrate() {
+//     const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI || "";
+
+//     if (!MONGO_URI) {
+//         console.error("❌ กรุณาตั้ง MONGODB_URI ใน .env");
+//         process.exit(1);
+//     }
+
+//     await mongoose.connect(MONGO_URI);
+//     console.log("✅ Connected to MongoDB");
+
+//     // ============================================
+//     // Step 1: หา lead แรกสุดของแต่ละ patient พร้อมข้อมูลครบ
+//     // ============================================
+//     const earliestLeads = await Appointment.aggregate([
+//         {
+//             $match: {
+//                 patientId: { $exists: true, $ne: null },
+//             },
+//         },
+//         {
+//             $sort: { createdAt: 1 },
+//         },
+//         {
+//             $group: {
+//                 _id: "$patientId",
+//                 earliestCreatedAt: { $first: "$createdAt" },
+//                 patientName: { $first: "$patient.fullname" },
+//                 interest: { $first: { $arrayElemAt: ["$interests.name", 0] } },
+//                 referralChannel: { $first: "$referralChannel" },
+//                 createdBy: { $first: "$createdBy" },
+//                 branch: { $first: "$clinic.branch" },
+//             },
+//         },
+//     ]);
+
+//     console.log(`\n📋 พบ ${earliestLeads.length} patients ที่มี leads`);
+
+//     if (earliestLeads.length === 0) {
+//         console.log("✅ ไม่มีข้อมูลต้องแก้");
+//         await mongoose.disconnect();
+//         return;
+//     }
+
+//     // ============================================
+//     // Step 2: อัพเดท Patient
+//     // ============================================
+//     let updatedDate = 0;
+//     let updatedFields = 0;
+//     let skipped = 0;
+
+//     for (const item of earliestLeads) {
+//         const patientId = item._id;
+//         const patient = await Patient.findById(patientId);
+//         if (!patient) {
+//             skipped++;
+//             continue;
+//         }
+
+//         const updates: Record<string, any> = {};
+//         const changes: string[] = [];
+
+//         // แก้ createdAt
+//         if (item.earliestCreatedAt) {
+//             const earliestTime = new Date(item.earliestCreatedAt).getTime();
+//             const currentTime = new Date((patient as any).createdAt).getTime();
+//             if (earliestTime < currentTime) {
+//                 updates.createdAt = item.earliestCreatedAt;
+//                 changes.push("createdAt");
+//                 updatedDate++;
+//             }
+//         }
+
+//         // เพิ่ม interest (ถ้ายังไม่มี)
+//         if (item.interest && !(patient as any).interest) {
+//             updates.interest = item.interest;
+//             changes.push("interest");
+//         }
+
+//         // เพิ่ม referralChannel (ถ้ายังไม่มี)
+//         if (item.referralChannel && !(patient as any).referralChannel) {
+//             updates.referralChannel = item.referralChannel;
+//             changes.push("referralChannel");
+//         }
+
+//         // เพิ่ม createdBy (ถ้ายังไม่มี)
+//         if (item.createdBy && !(patient as any).createdBy) {
+//             updates.createdBy = item.createdBy;
+//             changes.push("createdBy");
+//         }
+
+//         // เพิ่ม branch (ถ้ายังไม่มี)
+//         if (item.branch && !(patient as any).branch) {
+//             updates.branch = item.branch;
+//             changes.push("branch");
+//         }
+
+//         if (Object.keys(updates).length > 0) {
+//             await Patient.updateOne({ _id: patientId }, { $set: updates });
+//             updatedFields++;
+//             console.log(
+//                 `  ✨ ${String(item.patientName || "").padEnd(25)} [${changes.join(", ")}]`
+//             );
+//         } else {
+//             skipped++;
+//         }
+//     }
+
+//     // ============================================
+//     // Summary
+//     // ============================================
+//     console.log("\n" + "=".repeat(55));
+//     console.log("📊 สรุปผล");
+//     console.log("=".repeat(55));
+//     console.log(`  📅 แก้ createdAt:      ${updatedDate} คน`);
+//     console.log(`  ✨ เพิ่มข้อมูล:        ${updatedFields} คน`);
+//     console.log(`  ⏭️  ข้าม (ไม่ต้องแก้):  ${skipped} คน`);
+//     console.log("=".repeat(55));
+
+//     await mongoose.disconnect();
+//     console.log("\n✅ เสร็จสิ้น");
+// }
+
+// migrate().catch((err) => {
+//     console.error("❌ Migration failed:", err);
+//     process.exit(1);
+// });
+
+/**
+ * Migration Script: แก้ Patient.createdAt + เพิ่มข้อมูลจาก lead แรกสุด
+ *
+ * วิธีใช้:
+ *   npx tsx scripts/fix-patient-data.ts
+ *
+ * ⚠️ ควร backup database ก่อนรัน
+ *
+ * สิ่งที่ทำ:
+ *   1. หา lead แรกสุด (createdAt เก่าสุด) ของแต่ละ patient
+ *   2. อัพเดท Patient.createdAt → ตรงกับวันที่เข้ามาครั้งแรก
+ *   3. อัพเดท Patient.interest → จาก interests[0].name ของ lead แรก
+ *   4. อัพเดท Patient.referralChannel → จาก referralChannel ของ lead แรก
+ *   5. อัพเดท Patient.createdBy → จาก createdBy ของ lead แรก
+ *   6. อัพเดท Patient.branch → จาก clinic.branch ของ lead แรก
  */
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 dotenv.config();
 
-// ============================================
-// Models — import จาก project หรือ define inline
-// ============================================
-
-// Appointment (Lead) Model
+// Appointment Model
 const AppointmentSchema = new mongoose.Schema(
-  {
-    previousAppointmentId: { type: mongoose.Schema.Types.ObjectId },
-    nextAppointmentId: { type: mongoose.Schema.Types.ObjectId },
-    patientId: { type: mongoose.Schema.Types.ObjectId, index: true },
-    clinic: {
-      clinicId: { type: Number, required: true, index: true },
-      name: { type: String },
-      branch: { type: String },
+    {
+        patientId: { type: mongoose.Schema.Types.ObjectId, index: true },
+        clinic: { clinicId: Number, name: String, branch: String },
+        patient: { fullname: String, nickname: String, tel: String },
+        appointments: { status: String, date: Date },
+        interests: [{ name: String }],
+        referralChannel: String,
+        createdBy: String,
     },
-    patient: {
-      patientId: { type: mongoose.Schema.Types.ObjectId },
-      fullname: { type: String },
-      nickname: { type: String },
-      tel: { type: String },
-      socialMedia: { type: String },
-    },
-    appointments: {
-      status: { type: String },
-      date: { type: Date },
-    },
-    interests: [{ interestId: String, name: String }],
-    payments: { type: mongoose.Schema.Types.Mixed },
-    procedures: [{ name: String, price: String, commissionRate: Number, depositUsed: Number }],
-    deposit: {
-      amount: { type: Number },
-      slipUrl: { type: String },
-      slipUrls: [{ type: String }],
-    },
-    receiptUrl: { type: String },
-    receiptUrls: [{ type: String }],
-    referralChannel: { type: String },
-    note: { type: String },
-    createdBy: { type: String },
-  },
-  { timestamps: true, versionKey: false, strict: false }
+    { timestamps: true, versionKey: false, strict: false }
 );
-
 const Appointment = mongoose.model("Appointment", AppointmentSchema);
 
 // Patient Model
-interface IPatient {
-  clinicId: number;
-  fullname: string;
-  nickname?: string;
-  tel?: string;
-  socialMedia?: string;
-  balance: number;
-  transactions: Array<{
-    type: string;
-    amount: number;
-    description?: string;
-    appointmentId?: mongoose.Types.ObjectId;
-    createdBy?: string;
-    createdAt?: Date;
-  }>;
-}
-
-const PatientSchema = new mongoose.Schema<IPatient>(
-  {
-    clinicId: { type: Number, required: true, index: true },
-    fullname: { type: String, required: true },
-    nickname: { type: String },
-    tel: { type: String },
-    socialMedia: { type: String },
-    balance: { type: Number, default: 0 },
-    transactions: [
-      {
-        type: {
-          type: String,
-          enum: ["deposit", "use", "refund", "adjust"],
-          required: true,
-        },
-        amount: { type: Number, required: true },
-        description: { type: String },
-        appointmentId: { type: mongoose.Schema.Types.ObjectId },
-        createdBy: { type: String },
-        createdAt: { type: Date, default: Date.now },
-      },
-    ],
-  },
-  { timestamps: true, versionKey: false }
+const PatientSchema = new mongoose.Schema(
+    {
+        clinicId: Number,
+        fullname: String,
+        interest: String,
+        referralChannel: String,
+        createdBy: String,
+        branch: String,
+    },
+    { timestamps: true, versionKey: false, strict: false }
 );
-
-PatientSchema.index({ clinicId: 1, tel: 1 });
-PatientSchema.index({ clinicId: 1, fullname: 1 });
-
-const Patient = mongoose.model<IPatient>("Patient", PatientSchema);
-
-// ============================================
-// Migration Logic
-// ============================================
+const Patient = mongoose.model("Patient", PatientSchema);
 
 async function migrate() {
-  const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI || "";
+    const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI || "";
 
-  if (!MONGO_URI) {
-    console.error("❌ กรุณาตั้ง MONGODB_URI ใน .env");
-    process.exit(1);
-  }
-
-  await mongoose.connect(MONGO_URI);
-  console.log("✅ Connected to MongoDB");
-
-  // ============================================
-  // Step 1: ดึง leads ที่ยังไม่มี patientId
-  // ============================================
-  const leadsWithoutPatient = await Appointment.find({
-    patientId: { $exists: false },
-    "patient.fullname": { $exists: true, $ne: "" },
-  }).lean();
-
-  console.log(`\n📋 พบ ${leadsWithoutPatient.length} leads ที่ยังไม่มี patientId`);
-
-  if (leadsWithoutPatient.length === 0) {
-    console.log("✅ ไม่ต้อง migrate — leads ทั้งหมดมี patientId แล้ว");
-    await mongoose.disconnect();
-    return;
-  }
-
-  // ============================================
-  // Step 2: Group leads by (clinicId + tel)
-  // ถ้าไม่มี tel → fallback ใช้ fullname
-  // ============================================
-  interface LeadGroup {
-    clinicId: number;
-    fullname: string;
-    nickname: string;
-    tel: string;
-    socialMedia: string;
-    leads: any[];
-  }
-
-  const groupMap = new Map<string, LeadGroup>();
-
-  for (const lead of leadsWithoutPatient) {
-    const clinicId = (lead as any).clinic?.clinicId;
-    const tel = (lead as any).patient?.tel?.trim() || "";
-    const fullname = (lead as any).patient?.fullname?.trim() || "";
-    const nickname = (lead as any).patient?.nickname?.trim() || "";
-    const socialMedia = (lead as any).patient?.socialMedia?.trim() || "";
-
-    if (!clinicId || !fullname) continue;
-
-    // ใช้ tel เป็น key หลัก, ถ้าไม่มี tel fallback เป็น fullname
-    const groupKey = tel
-      ? `${clinicId}:tel:${tel}`
-      : `${clinicId}:name:${fullname}`;
-
-    if (!groupMap.has(groupKey)) {
-      groupMap.set(groupKey, {
-        clinicId,
-        fullname,
-        nickname,
-        tel,
-        socialMedia,
-        leads: [],
-      });
+    if (!MONGO_URI) {
+        console.error("❌ กรุณาตั้ง MONGODB_URI ใน .env");
+        process.exit(1);
     }
 
-    const group = groupMap.get(groupKey)!;
-    group.leads.push(lead);
+    await mongoose.connect(MONGO_URI);
+    console.log("✅ Connected to MongoDB");
 
-    // ใช้ข้อมูลล่าสุด (lead ที่สร้างทีหลังอาจมีข้อมูลครบกว่า)
-    if (fullname && (!group.fullname || fullname.length > group.fullname.length)) {
-      group.fullname = fullname;
-    }
-    if (nickname && !group.nickname) group.nickname = nickname;
-    if (socialMedia && !group.socialMedia) group.socialMedia = socialMedia;
-  }
+    // ============================================
+    // Step 1: หา lead แรกสุดของแต่ละ patient พร้อมข้อมูลครบ
+    // ============================================
+    const earliestLeads = await Appointment.aggregate([
+        {
+            $match: {
+                patientId: { $exists: true, $ne: null },
+            },
+        },
+        {
+            $sort: { createdAt: 1 },
+        },
+        {
+            $group: {
+                _id: "$patientId",
+                earliestCreatedAt: { $first: "$createdAt" },
+                patientName: { $first: "$patient.fullname" },
+                interest: { $first: { $arrayElemAt: ["$interests.name", 0] } },
+                referralChannel: { $first: "$referralChannel" },
+                createdBy: { $first: "$createdBy" },
+                branch: { $first: "$clinic.branch" },
+            },
+        },
+    ]);
 
-  console.log(`👥 Group ได้ ${groupMap.size} คนไข้`);
+    console.log(`\n📋 พบ ${earliestLeads.length} patients ที่มี leads`);
 
-  // ============================================
-  // Step 3: สร้าง Patient + ผูก patientId + ย้าย deposit
-  // ============================================
-  let patientsCreated = 0;
-  let patientsReused = 0;
-  let leadsUpdated = 0;
-  let depositsImported = 0;
-
-  for (const [key, group] of groupMap) {
-    const { clinicId, fullname, nickname, tel, socialMedia, leads } = group;
-
-    // ค้นหา Patient ที่มีอยู่แล้ว (อาจสร้างไว้แล้วจาก leads ใหม่ที่มี code ใหม่)
-    let patient = null;
-
-    if (tel) {
-      patient = await Patient.findOne({ clinicId, tel });
-    }
-    if (!patient) {
-      patient = await Patient.findOne({ clinicId, fullname });
-    }
-
-    if (patient) {
-      patientsReused++;
-      console.log(`  ♻️ ใช้ Patient ที่มีอยู่: ${fullname} (${tel || "no tel"}) — balance: ${patient.balance}`);
-    } else {
-      // สร้าง Patient ใหม่
-      patient = await Patient.create({
-        clinicId,
-        fullname,
-        nickname: nickname || undefined,
-        tel: tel || undefined,
-        socialMedia: socialMedia || undefined,
-        balance: 0,
-        transactions: [],
-      });
-      patientsCreated++;
-      console.log(`  ✨ สร้าง Patient ใหม่: ${fullname} (${tel || "no tel"})`);
-    }
-
-    // Sort leads by createdAt เพื่อ process ตามลำดับเวลา
-    leads.sort((a: any, b: any) => {
-      const dateA = new Date(a.createdAt || 0).getTime();
-      const dateB = new Date(b.createdAt || 0).getTime();
-      return dateA - dateB;
+    // Debug: แสดงข้อมูล 3 คนแรก
+    earliestLeads.slice(0, 3).forEach((item) => {
+        console.log(`  🔍 ${item.patientName}: earliestCreatedAt = ${item.earliestCreatedAt}`);
     });
 
-    // ============================================
-    // ผูก patientId + ย้าย deposit เข้า wallet
-    // ============================================
-    for (const lead of leads) {
-      const leadId = lead._id;
-
-      // Update lead → เพิ่ม patientId
-      await Appointment.updateOne(
-        { _id: leadId },
-        {
-          $set: {
-            patientId: patient._id,
-          },
-        }
-      );
-      leadsUpdated++;
-
-      // ถ้า lead มี deposit → เพิ่มเข้า patient wallet
-      const depositAmount = lead.deposit?.amount || 0;
-      if (depositAmount > 0) {
-        // เช็คว่า deposit นี้ยังไม่เคยถูก import (ป้องกันรันซ้ำ)
-        const alreadyImported = patient.transactions.some(
-          (t: any) =>
-            t.type === "deposit" &&
-            t.appointmentId?.toString() === leadId.toString()
-        );
-
-        if (!alreadyImported) {
-          patient.transactions.push({
-            type: "deposit",
-            amount: depositAmount,
-            description: `[Migration] เงินมัดจำจาก Lead: ${fullname}`,
-            appointmentId: leadId,
-            createdBy: lead.createdBy || "migration",
-            createdAt: lead.createdAt || new Date(),
-          });
-          patient.balance += depositAmount;
-          depositsImported++;
-          console.log(`    💰 Import deposit: ${depositAmount} บาท (Lead: ${leadId})`);
-        }
-      }
-
-      // ถ้า lead status=arrived + มี depositUsed ใน procedures → หักจาก wallet
-      if (lead.appointments?.status === "arrived" && Array.isArray(lead.procedures)) {
-        const procDepositUsed = (lead.procedures as any[]).reduce(
-          (sum: number, p: any) => sum + (Number(p.depositUsed) || 0),
-          0
-        );
-
-        if (procDepositUsed > 0) {
-          const alreadyUsed = patient.transactions.some(
-            (t: any) =>
-              t.type === "use" &&
-              t.appointmentId?.toString() === leadId.toString()
-          );
-
-          if (!alreadyUsed) {
-            patient.transactions.push({
-              type: "use",
-              amount: -procDepositUsed,
-              description: `[Migration] ใช้มัดจำจาก Lead: ${fullname}`,
-              appointmentId: leadId,
-              createdBy: lead.createdBy || "migration",
-              createdAt: lead.appointments?.date || lead.createdAt || new Date(),
-            });
-            patient.balance -= procDepositUsed;
-            console.log(`    🔻 Import deposit use: -${procDepositUsed} บาท (Lead: ${leadId})`);
-          }
-        }
-      }
+    if (earliestLeads.length === 0) {
+        console.log("✅ ไม่มีข้อมูลต้องแก้");
+        await mongoose.disconnect();
+        return;
     }
 
-    // Save patient with updated transactions
-    await patient.save();
-  }
+    // ============================================
+    // Step 2: อัพเดท Patient
+    // ============================================
+    let updatedDate = 0;
+    let updatedFields = 0;
+    let skipped = 0;
 
-  // ============================================
-  // Summary
-  // ============================================
-  console.log("\n" + "=".repeat(60));
-  console.log("📊 สรุปผลการ Migration");
-  console.log("=".repeat(60));
-  console.log(`  ✨ สร้าง Patient ใหม่:    ${patientsCreated} คน`);
-  console.log(`  ♻️ ใช้ Patient ที่มีอยู่:   ${patientsReused} คน`);
-  console.log(`  🔗 ผูก patientId กับ Lead: ${leadsUpdated} leads`);
-  console.log(`  💰 Import Deposit:        ${depositsImported} รายการ`);
-  console.log("=".repeat(60));
+    for (const item of earliestLeads) {
+        const patientId = item._id;
+        const patient = await Patient.findById(patientId);
+        if (!patient) {
+            skipped++;
+            continue;
+        }
 
-  // ============================================
-  // Verify: ตรวจสอบว่ายังมี leads ที่ไม่มี patientId อีกไหม
-  // ============================================
-  const remainingLeads = await Appointment.countDocuments({
-    patientId: { $exists: false },
-    "patient.fullname": { $exists: true, $ne: "" },
-  });
+        const updates: Record<string, any> = {};
+        const changes: string[] = [];
 
-  if (remainingLeads > 0) {
-    console.log(`\n⚠️ ยังมี ${remainingLeads} leads ที่ไม่ได้ migrate (อาจไม่มี fullname)`);
-  } else {
-    console.log("\n✅ ทุก leads มี patientId แล้ว!");
-  }
+        // แก้ createdAt
+        if (item.earliestCreatedAt) {
+            const earliestTime = new Date(item.earliestCreatedAt).getTime();
+            const currentTime = new Date((patient as any).createdAt).getTime();
+            if (earliestTime < currentTime) {
+                updates.createdAt = item.earliestCreatedAt;
+                changes.push("createdAt");
+                updatedDate++;
+            }
+        }
 
-  await mongoose.disconnect();
-  console.log("\n✅ เสร็จสิ้น — ปิดการเชื่อมต่อ");
+        // เพิ่ม interest (ถ้ายังไม่มี)
+        if (item.interest && !(patient as any).interest) {
+            updates.interest = item.interest;
+            changes.push("interest");
+        }
+
+        // เพิ่ม referralChannel (ถ้ายังไม่มี)
+        if (item.referralChannel && !(patient as any).referralChannel) {
+            updates.referralChannel = item.referralChannel;
+            changes.push("referralChannel");
+        }
+
+        // เพิ่ม createdBy (ถ้ายังไม่มี)
+        if (item.createdBy && !(patient as any).createdBy) {
+            updates.createdBy = item.createdBy;
+            changes.push("createdBy");
+        }
+
+        // เพิ่ม branch (ถ้ายังไม่มี)
+        if (item.branch && !(patient as any).branch) {
+            updates.branch = item.branch;
+            changes.push("branch");
+        }
+
+        if (Object.keys(updates).length > 0) {
+            // ใช้ raw MongoDB driver เพื่อ bypass Mongoose timestamps
+            // (Mongoose timestamps: true จะป้องกันการ overwrite createdAt)
+            await Patient.collection.updateOne(
+                { _id: patientId },
+                { $set: updates }
+            );
+            updatedFields++;
+            console.log(
+                `  ✨ ${String(item.patientName || "").padEnd(25)} [${changes.join(", ")}]`
+            );
+        } else {
+            skipped++;
+        }
+    }
+
+    // ============================================
+    // Summary
+    // ============================================
+    console.log("\n" + "=".repeat(55));
+    console.log("📊 สรุปผล");
+    console.log("=".repeat(55));
+    console.log(`  📅 แก้ createdAt:      ${updatedDate} คน`);
+    console.log(`  ✨ เพิ่มข้อมูล:        ${updatedFields} คน`);
+    console.log(`  ⏭️  ข้าม (ไม่ต้องแก้):  ${skipped} คน`);
+    console.log("=".repeat(55));
+
+    // ============================================
+    // Verify: เช็คผลลัพธ์
+    // ============================================
+    console.log("\n🔍 ตรวจสอบผลลัพธ์...");
+    for (const item of earliestLeads.slice(0, 3)) {
+        const p = await Patient.collection.findOne({ _id: item._id });
+        if (p) {
+            console.log(`  ${String(item.patientName || "").padEnd(20)} Patient.createdAt = ${(p as any).createdAt}  (ควรเป็น ${item.earliestCreatedAt})`);
+        }
+    }
+
+    await mongoose.disconnect();
+    console.log("\n✅ เสร็จสิ้น");
 }
 
-// ============================================
-// Run
-// ============================================
 migrate().catch((err) => {
-  console.error("❌ Migration failed:", err);
-  process.exit(1);
+    console.error("❌ Migration failed:", err);
+    process.exit(1);
 });

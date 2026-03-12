@@ -49,6 +49,7 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
     // Find or Create Patient
     // ============================================
     const patientData = body.patient || {};
+    const interests = Array.isArray(body.interests) ? body.interests : [];
     const patient = await findOrCreatePatient(
       clinicId,
       {
@@ -57,6 +58,9 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
         nickname: patientData.nickname,
         tel: patientData.tel,
         socialMedia: patientData.socialMedia,
+        interest: interests[0]?.name || undefined,
+        referralChannel: body.referralChannel || undefined,
+        branch: branch || body.clinic?.branch || undefined,
       },
       username
     );
@@ -215,6 +219,7 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
     // ============================================
     if (updateData.patient?.fullname) {
       const patientData = updateData.patient;
+      const updateInterests = Array.isArray(updateData.interests) ? updateData.interests : [];
       const patient = await findOrCreatePatient(
         clinicId,
         {
@@ -223,6 +228,9 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
           nickname: patientData.nickname,
           tel: patientData.tel,
           socialMedia: patientData.socialMedia,
+          interest: updateInterests[0]?.name || undefined,
+          referralChannel: updateData.referralChannel || undefined,
+          branch: updateData.clinic?.branch || undefined,
         },
         username
       );
