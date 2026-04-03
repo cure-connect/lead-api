@@ -10,7 +10,8 @@ import {
     refundDepositController,
     adjustBalanceController,
     getTransactionsController,
-    getPatientAppointmentsController
+    getPatientAppointmentsController,
+    checkTelController,
 } from "../controllers/patient.controller";
 import { apiKeyMiddleware, authMiddleware } from "../middleware/auth.middlware";
 
@@ -46,6 +47,24 @@ router.use(apiKeyMiddleware(API_KEY));
  *         description: Max results (default 10)
  */
 router.get("/patient/search", authMiddleware, searchPatientsController);
+
+/**
+ * @swagger
+ * /lead/v1/api/patient/check-tel:
+ *   get:
+ *     tags: [Patient]
+ *     summary: Check duplicate phone number
+ *     parameters:
+ *       - in: query
+ *         name: tel
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: excludeId
+ *         schema:
+ *           type: string
+ */
+router.get("/patient/check-tel", authMiddleware, checkTelController);
 
 /**
  * @swagger

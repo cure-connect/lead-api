@@ -11,6 +11,7 @@ import {
     adjustBalance,
     getTransactionHistory,
     getPatientAppointments,
+    checkTelDuplicate,
 } from "../services/patient.service";
 import { logActivity } from "../services/activity.service";
 import { AuthRequest } from "../middleware/auth.middlware";
@@ -522,6 +523,41 @@ export const getPatientAppointmentsController = async (req: AuthRequest, res: Re
         });
     } catch (err: any) {
         console.error("Error getting patient appointments:", err);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+/**
+ * GET /patient/check-tel?tel=xxx&excludeId=xxx
+ * เช็คเบอร์โทรซ้ำ
+ */
+export const checkTelController = async (req: AuthRequest, res: Response) => {
+    try {
+        const clinicId = req.user?.clinicId;
+        if (!clinicId) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const tel = req.query.tel as string;
+        const excludeId = req.query.excludeId as string | undefined;
+
+        if (!tel || tel.trim().length < 9) {
+            return res.json({ exists: false });
+        }
+
+        const existing = await checkTelDuplicate(clinicId, tel, excludeId);
+
+        res.json({
+            exists: !!existing,
+            patient: existing ? {
+                _id: existing._id,
+                fullname: existing.fullname,
+                nickname: existing.nickname,
+                tel: existing.tel,
+            } : null,
+        });
+    } catch (err: any) {
+        console.error("Error checking tel:", err);
         res.status(500).json({ message: err.message });
     }
 };

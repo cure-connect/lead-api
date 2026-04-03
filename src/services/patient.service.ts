@@ -49,6 +49,37 @@ export const createPatient = async (
 };
 
 /**
+ * เช็คเบอร์โทรซ้ำ
+ */
+export const checkTelDuplicate = async (
+    clinicId: number,
+    tel: string,
+    excludePatientId?: string
+): Promise<PatientDocument | null> => {
+    try {
+        if (!tel || tel.trim().length < 9) return null;
+
+        const query: any = {
+            clinicId,
+            tel: tel.replace(/[-\s]/g, ''),
+        };
+
+        if (excludePatientId) {
+            query._id = { $ne: excludePatientId };
+        }
+
+        const patient = await PatientModel.findOne(query)
+            .select("_id fullname nickname tel")
+            .lean();
+
+        return patient;
+    } catch (error: any) {
+        logger.error("Failed to check tel duplicate", { error: error.message, clinicId, tel });
+        throw error;
+    }
+};
+
+/**
  * ค้นหาคนไข้ตามชื่อ (สำหรับ autocomplete)
  */
 export const searchPatients = async (
@@ -193,14 +224,12 @@ export const findOrCreatePatient = async (
             });
 
             if (byTel) {
-                // อัพเดทชื่อถ้าต่างกัน
-                if (data.fullname && data.fullname !== byTel.fullname) {
-                    byTel.fullname = data.fullname;
-                }
-                if (data.nickname && data.nickname !== byTel.nickname) {
-                    byTel.nickname = data.nickname;
-                }
-                await byTel.save();
+                // เจอคนไข้เดิมจากเบอร์โทร → return เลย ไม่ overwrite ชื่อ
+                logger.info("Found existing patient by tel", {
+                    patientId: byTel._id,
+                    existingName: byTel.fullname,
+                    requestedName: data.fullname,
+                });
                 return byTel;
             }
         }
