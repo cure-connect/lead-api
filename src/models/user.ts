@@ -14,6 +14,7 @@ export interface UserDocument extends Document {
       allowCustom?: Boolean
     },
   },
+  lineGroupId?: string;
   createdAt: Date;
   updatedAt: Date;
 
@@ -25,7 +26,9 @@ const UserSchema = new Schema<UserDocument>(
     username: {
       type: String,
       unique: true,
-      require: true
+      require: true,
+      lowercase: true,
+      trim: true,
     },
 
     password: {
@@ -67,6 +70,11 @@ const UserSchema = new Schema<UserDocument>(
           default: true,
         },
       },
+    },
+
+    lineGroupId: {
+      type: String,
+      default: null,
     },
   },
   {

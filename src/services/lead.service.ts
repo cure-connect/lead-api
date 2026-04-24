@@ -1,4 +1,5 @@
 import { AppointmentModel, LeadDocument } from "../models/appointment";
+import { PatientModel } from "../models/patient";
 import { Types } from "mongoose";
 import logger from "./logger.service";
 
@@ -37,6 +38,28 @@ interface CreateLeadInput {
   previousAppointmentId?: string;
 }
 
+// ============================================
+// Helper: override embedded patient ด้วยข้อมูลจาก populated patientId
+// ============================================
+const populatePatientFields = "fullname nickname tel socialMedia";
+
+const mergePatientData = (doc: any) => {
+  if (doc.patientId && typeof doc.patientId === "object" && doc.patientId.fullname) {
+    doc.patient = {
+      fullname: doc.patientId.fullname,
+      nickname: doc.patientId.nickname,
+      tel: doc.patientId.tel,
+      socialMedia: doc.patientId.socialMedia,
+    };
+    // เก็บ patientId กลับเป็น ObjectId เหมือนเดิม
+    doc.patientId = doc.patientId._id;
+  }
+  return doc;
+};
+
+// ============================================
+// Create Lead (ไม่เปลี่ยน)
+// ============================================
 export const createLead = async (
   data: CreateLeadInput
 ): Promise<LeadDocument> => {
@@ -137,6 +160,9 @@ export const createLead = async (
   }
 };
 
+// ============================================
+// Find Leads — populate patientId แล้ว merge
+// ============================================
 export const findLeads = async (clinicId: number, year?: string) => {
   try {
     const query: any = { "clinic.clinicId": clinicId };
@@ -147,30 +173,48 @@ export const findLeads = async (clinicId: number, year?: string) => {
 
       query.$or = [
         { createdAt: { $gte: startDate, $lt: endDate } },
-        { "appointments.date": { $gte: startDate, $lt: endDate } }
+        { "appointments.date": { $gte: startDate, $lt: endDate } },
       ];
     }
 
-    const leads = await AppointmentModel.find(query).sort({ createdAt: -1 });
+    const leads = await AppointmentModel.find(query)
+      .populate("patientId", populatePatientFields)
+      .sort({ createdAt: -1 })
+      .lean();
 
-    logger.debug("Leads fetched", { clinicId, year, count: leads.length });
+    const result = leads.map(mergePatientData);
 
-    return leads;
+    logger.debug("Leads fetched", { clinicId, year, count: result.length });
+
+    return result;
   } catch (error: any) {
     logger.error("Failed to fetch leads", { error: error.message, clinicId, year });
     throw error;
   }
 };
 
+// ============================================
+// Find Lead By ID — populate patientId แล้ว merge
+// ============================================
 export const findLeadById = async (id: string, clinicId: number) => {
   try {
-    return await AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId });
+    const lead = await AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId })
+      .populate("patientId", populatePatientFields)
+      .lean();
+
+    if (!lead) return null;
+
+    return mergePatientData(lead);
   } catch (error: any) {
     logger.error("Failed to find lead by id", { error: error.message, leadId: id, clinicId });
     throw error;
   }
 };
 
+// ============================================
+// Get Appointment History
+// $graphLookup ไม่รองรับ populate → batch lookup patientIds เอง
+// ============================================
 export const getAppointmentHistory = async (
   appointmentId: string,
   clinicId: number
@@ -180,10 +224,9 @@ export const getAppointmentHistory = async (
       {
         $match: {
           _id: new Types.ObjectId(appointmentId),
-          "clinic.clinicId": clinicId
-        }
+          "clinic.clinicId": clinicId,
+        },
       },
-
       {
         $graphLookup: {
           from: "appointments",
@@ -192,9 +235,9 @@ export const getAppointmentHistory = async (
           connectToField: "_id",
           as: "history",
           maxDepth: 100,
-          restrictSearchWithMatch: { "clinic.clinicId": clinicId }
-        }
-      }
+          restrictSearchWithMatch: { "clinic.clinicId": clinicId },
+        },
+      },
     ]);
 
     if (result.length === 0) {
@@ -202,10 +245,48 @@ export const getAppointmentHistory = async (
     }
 
     const current = result[0];
-    const history = current.history || [];
+    let history: any[] = current.history || [];
 
-    history.sort((a: any, b: any) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    // รวม patientIds ทั้งหมด (current + history) แล้ว batch lookup ทีเดียว
+    const allDocs = [current, ...history];
+    const patientIds = [
+      ...new Set(
+        allDocs
+          .filter((d) => d.patientId)
+          .map((d) => d.patientId.toString())
+      ),
+    ];
+
+    let patientMap: Record<string, any> = {};
+    if (patientIds.length > 0) {
+      const patients = await PatientModel.find({
+        _id: { $in: patientIds.map((pid) => new Types.ObjectId(pid)) },
+      })
+        .select(populatePatientFields)
+        .lean();
+
+      patientMap = patients.reduce((map: Record<string, any>, p: any) => {
+        map[p._id.toString()] = {
+          fullname: p.fullname,
+          nickname: p.nickname,
+          tel: p.tel,
+          socialMedia: p.socialMedia,
+        };
+        return map;
+      }, {});
+    }
+
+    // ถ้ามีใน patientMap ใช้ข้อมูลล่าสุด ไม่งั้น fallback embedded เดิม
+    const resolvePatient = (doc: any) => {
+      if (doc.patientId && patientMap[doc.patientId.toString()]) {
+        return patientMap[doc.patientId.toString()];
+      }
+      return doc.patient;
+    };
+
+    history.sort(
+      (a: any, b: any) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
 
     logger.debug("Appointment history fetched", {
@@ -217,7 +298,7 @@ export const getAppointmentHistory = async (
     return {
       current: {
         _id: current._id,
-        patient: current.patient,
+        patient: resolvePatient(current),
         clinic: current.clinic,
         appointments: current.appointments,
         procedures: current.procedures,
@@ -229,13 +310,15 @@ export const getAppointmentHistory = async (
         referralChannel: current.referralChannel,
         note: current.note,
         arrivedNote: current.arrivedNote,
+        rescheduledNote: current.rescheduledNote,
+        cancelledNote: current.cancelledNote,
         createdBy: current.createdBy,
         createdAt: current.createdAt,
         previousAppointmentId: current.previousAppointmentId,
       },
       history: history.map((h: any) => ({
         _id: h._id,
-        patient: h.patient,
+        patient: resolvePatient(h),
         clinic: h.clinic,
         appointments: h.appointments,
         procedures: h.procedures,
@@ -247,11 +330,13 @@ export const getAppointmentHistory = async (
         referralChannel: h.referralChannel,
         note: h.note,
         arrivedNote: h.arrivedNote,
+        rescheduledNote: h.rescheduledNote,
+        cancelledNote: h.cancelledNote,
         createdBy: h.createdBy,
         createdAt: h.createdAt,
         previousAppointmentId: h.previousAppointmentId,
       })),
-      totalVisits: history.length + 1
+      totalVisits: history.length + 1,
     };
   } catch (error: any) {
     logger.error("Failed to get appointment history", {
@@ -263,15 +348,23 @@ export const getAppointmentHistory = async (
   }
 };
 
+// ============================================
+// Get Next Appointments — populate patientId แล้ว merge
+// ============================================
 export const getNextAppointments = async (
   appointmentId: string,
   clinicId: number
 ) => {
   try {
-    return await AppointmentModel.find({
+    const docs = await AppointmentModel.find({
       previousAppointmentId: new Types.ObjectId(appointmentId),
-      "clinic.clinicId": clinicId
-    }).sort({ createdAt: 1 });
+      "clinic.clinicId": clinicId,
+    })
+      .populate("patientId", populatePatientFields)
+      .sort({ createdAt: 1 })
+      .lean();
+
+    return docs.map(mergePatientData);
   } catch (error: any) {
     logger.error("Failed to get next appointments", {
       error: error.message,
@@ -282,6 +375,9 @@ export const getNextAppointments = async (
   }
 };
 
+// ============================================
+// Update Lead (ไม่เปลี่ยน)
+// ============================================
 export const updateLeadById = async (
   id: string,
   clinicId: number,
@@ -291,7 +387,6 @@ export const updateLeadById = async (
     const $set: any = {};
     const $unset: any = {};
 
-    // === Patient Reference ===
     if (body.patientId) {
       $set["patientId"] = new Types.ObjectId(body.patientId.toString());
     }
@@ -374,6 +469,8 @@ export const updateLeadById = async (
     if (body.referralChannel !== undefined) $set["referralChannel"] = body.referralChannel;
     if (body.note !== undefined) $set["note"] = body.note;
     if (body.arrivedNote !== undefined) $set["arrivedNote"] = body.arrivedNote;
+    if (body.rescheduledNote !== undefined) $set["rescheduledNote"] = body.rescheduledNote;
+    if (body.cancelledNote !== undefined) $set["cancelledNote"] = body.cancelledNote;
 
     const update: any = {};
     if (Object.keys($set).length > 0) update.$set = $set;
@@ -398,6 +495,9 @@ export const updateLeadById = async (
   }
 };
 
+// ============================================
+// Delete Lead (ไม่เปลี่ยน)
+// ============================================
 export const deleteLeadById = async (id: string, clinicId: number) => {
   try {
     const leadToDelete = await AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId });

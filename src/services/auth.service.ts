@@ -6,7 +6,11 @@ import logger from "./logger.service";
 
 export const login = async (username: string, password: string) => {
     try {
-        const user = await UserModel.findOne({ username });
+        const normalizedUsername = (username || "").trim().toLowerCase();
+
+        const user = await UserModel.findOne({
+            username: { $regex: `^${normalizedUsername.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" }
+        });
 
         if (!user) {
             logger.warn("Login failed - user not found", { username });

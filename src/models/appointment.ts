@@ -60,6 +60,8 @@ export interface LeadDocument extends Document {
   referralChannel?: string;
   note?: string;
   arrivedNote?: string;
+  rescheduledNote?: string;
+  cancelledNote?: string;
   createdBy: string;
   createdAt?: Date;
 }
@@ -166,6 +168,8 @@ const AppointmentSchema = new Schema<LeadDocument>(
     referralChannel: { type: String },
     note: { type: String },
     arrivedNote: { type: String },
+    rescheduledNote: { type: String },
+    cancelledNote: { type: String },
     createdBy: { type: String, required: true },
   },
   {
