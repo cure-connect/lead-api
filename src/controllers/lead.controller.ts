@@ -11,6 +11,7 @@ import {
 import { findOrCreatePatient, addDeposit, useDeposit } from "../services/patient.service";
 import { logActivity } from "../services/activity.service";
 import { AuthRequest } from "../middleware/auth.middlware";
+import { notifyNewLead, notifyStatusChange } from "../services/notification.service";
 
 export const createLeadController = async (req: AuthRequest, res: Response) => {
   try {
@@ -86,6 +87,16 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
     };
 
     const lead = await createLead(leadData);
+
+    notifyNewLead(
+      clinicId,
+      patient.fullname,
+      leadData.appointments?.status || "pending",
+      interests.map((i: any) => i.name),
+      leadData.appointments?.date,
+      deposit?.amount,
+      body.referralChannel
+    ).catch((err) => console.error("LINE notify failed:", err.message));
 
     // ============================================
     // เพิ่มเงินมัดจำเข้า Patient Wallet
@@ -296,6 +307,30 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
 
     if (!updatedLead) {
       return res.status(404).json({ message: "Lead not found" });
+    }
+
+    const newStatus = updateData.appointments?.status;
+    const oldStatus = oldLead.appointments?.status;
+
+    if (newStatus && newStatus !== oldStatus) {
+      if (newStatus === "rescheduled") {
+        notifyStatusChange(
+          clinicId,
+          updatedLead.patient?.fullname || oldLead.patient?.fullname,
+          "rescheduled",
+          updateData.rescheduledNote,
+          updateData.appointments?.date
+        ).catch(err => console.error("LINE notify failed:", err.message));
+      }
+
+      if (newStatus === "cancelled") {
+        notifyStatusChange(
+          clinicId,
+          updatedLead.patient?.fullname || oldLead.patient?.fullname,
+          "cancelled",
+          updateData.cancelledNote
+        ).catch(err => console.error("LINE notify failed:", err.message));
+      }
     }
 
     const changes: Array<{ field: string; oldValue: any; newValue: any }> = [];

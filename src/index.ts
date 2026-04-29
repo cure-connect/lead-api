@@ -10,10 +10,12 @@ import userroute from "./routes/user.route"
 import authroute from "./routes/auth.route"
 import uploadroute from "./routes/upload.route"
 import patientroute from "./routes/patient.route";
+import lineroute from "./routes/line-webhook.route"
 import externalApiRoutes from "./external";
 import apiKeyRoutes from "./routes/api-key.route";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
+import { startSummaryCronJob } from "./services/summary-notification.service";
 
 const app = express();
 
@@ -37,9 +39,13 @@ app.use(
   })
 );
 
+// app.use("/lead/v1/api/webhook/line", express.raw({ type: "*/*" }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use("/lead/v1/api", lineroute)
+
 
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.use("/lead/v1/api/uploads", express.static(path.join(__dirname, "../uploads")));
@@ -55,12 +61,14 @@ app.use("/lead/v1/api", patientroute)
 app.use("/lead/v1/api", leadroute)
 app.use("/lead/v1/api", settingroute)
 app.use("/lead/v1/api", userroute)
+
 app.use("/lead/v1/api", uploadroute)
 
 const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   await connectDB();
+  startSummaryCronJob();
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });

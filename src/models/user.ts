@@ -15,6 +15,7 @@ export interface UserDocument extends Document {
     },
   },
   lineGroupId?: string;
+  lineAdminIds?: string[];
   createdAt: Date;
   updatedAt: Date;
 
@@ -76,6 +77,11 @@ const UserSchema = new Schema<UserDocument>(
       type: String,
       default: null,
     },
+    lineAdminIds: [
+      {
+        type: String
+      }
+    ],
   },
   {
     timestamps: true,
