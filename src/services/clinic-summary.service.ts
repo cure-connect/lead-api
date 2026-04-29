@@ -12,7 +12,7 @@ export const getClinicMonthlySummary = async (
     year: number,
     month: number
 ) => {
-    
+
     // const startOfMonth = new Date(year, month, 1);
     // const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
 
@@ -93,7 +93,7 @@ export const getNewPatientsOfMonth = async (
         const pid = appt.patientId?.toString();
         if (!pid) continue;
         const existing = appointmentMap.get(pid);
-        if (!existing || new Date(appt.createdAt!) > new Date(existing.createdAt)) {
+        if (!existing || new Date(appt.createdAt!) < new Date(existing.createdAt)) {
             appointmentMap.set(pid, appt);
         }
     }

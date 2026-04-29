@@ -186,7 +186,7 @@ router.post("/webhook/line", async (req: Request, res: Response) => {
                     const pid = appt.patientId?.toString();
                     if (!pid) continue;
                     const existing = appointmentMap.get(pid);
-                    if (!existing || new Date(appt.createdAt!) > new Date(existing.createdAt)) {
+                    if (!existing || new Date(appt.createdAt!) < new Date(existing.createdAt)) {
                         appointmentMap.set(pid, appt);
                     }
                 }
