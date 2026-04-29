@@ -150,6 +150,123 @@ router.post("/webhook/line", async (req: Request, res: Response) => {
                 }
             }
 
+            // if (text === "/คนไข้ใหม่") {
+            //     const clinic = await UserModel.findOne({ lineGroupId: groupId }).lean();
+
+            //     if (!clinic) {
+            //         await replyMessage(event.replyToken, `❌ กลุ่มนี้ยังไม่ได้เชื่อมต่อกับคลินิกใด`);
+            //         continue;
+            //     }
+
+            //     const now = new Date();
+            //     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            //     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+            //     const newPatients = await PatientModel.find({
+            //         clinicId: clinic.clinicId,
+            //         createdAt: { $gte: startOfMonth, $lte: endOfMonth },
+            //     }).lean();
+
+            //     if (newPatients.length === 0) {
+            //         await replyMessage(event.replyToken, `ไม่มีคนไข้ใหม่ในเดือนนี้`);
+            //         continue;
+            //     }
+
+            //     // ดึง appointment ล่าสุดของแต่ละ patient
+            //     const patientIds = newPatients.map(p => p._id);
+
+            //     const appointments = await AppointmentModel.find({
+            //         "clinic.clinicId": clinic.clinicId,
+            //         patientId: { $in: patientIds },
+            //     }).lean();
+
+            //     // map appointment ล่าสุดเข้า patient
+            //     const appointmentMap = new Map<string, any>();
+            //     for (const appt of appointments) {
+            //         const pid = appt.patientId?.toString();
+            //         if (!pid) continue;
+            //         const existing = appointmentMap.get(pid);
+            //         if (!existing || new Date(appt.createdAt!) < new Date(existing.createdAt)) {
+            //             appointmentMap.set(pid, appt);
+            //         }
+            //     }
+
+            //     // รวม patient + appointment แล้วแยกกลุ่ม
+            //     const combined = newPatients.map(p => ({
+            //         fullname: p.fullname,
+            //         interest: p.interest || null,
+            //         appointmentDate: appointmentMap.get(p._id.toString())?.appointments?.date || null,
+            //     }));
+
+            //     const scheduled = combined
+            //         .filter(p => p.appointmentDate)
+            //         .sort((a, b) => new Date(a.appointmentDate!).getTime() - new Date(b.appointmentDate!).getTime());
+
+            //     const unscheduled = combined.filter(p => !p.appointmentDate);
+            //     const sorted = [...scheduled, ...unscheduled];
+
+            //     const formatDate = (date: Date) =>
+            //         new Date(date).toLocaleString("th-TH", {
+            //             timeZone: "Asia/Bangkok",
+            //             month: "short",
+            //             day: "numeric",
+            //             hour: "2-digit",
+            //             minute: "2-digit",
+            //         });
+
+            //     const formatLead = (p: any, index: number) => {
+            //         const interest = p.interest || "-";
+            //         const date = p.appointmentDate ? formatDate(p.appointmentDate) : "ยังไม่นัด";
+            //         return `${index}. ${p.fullname}\n   - ${interest}\n   - ${date}`;
+            //     };
+
+            //     const thMonth = now.toLocaleString("th-TH", {
+            //         month: "long",
+            //         year: "numeric",
+            //         timeZone: "Asia/Bangkok",
+            //     });
+
+            //     const header = [
+            //         `👤 คนไข้ใหม่ ${thMonth}`,
+            //         `${clinic.clinicName} - ${clinic.branch}\n`,
+            //     ].join("\n");
+
+            //     const footer = [
+            //         `\nนัดแล้ว: ${scheduled.length} คน  ยังไม่นัด: ${unscheduled.length} คน`,
+            //     ].join("\n");
+
+            //     const LIMIT = 4500;
+            //     const messages: string[] = [];
+            //     let currentChunk: string[] = [];
+            //     let currentLength = header.length;
+            //     let isFirstChunk = true;
+
+            //     sorted.forEach((p, i) => {
+            //         const leadText = formatLead(p, i + 1);
+
+            //         if (currentLength + leadText.length + footer.length > LIMIT) {
+            //             const chunkHeader = isFirstChunk ? header : `📋 (ต่อ) ${thMonth}`;
+            //             messages.push([chunkHeader, ...currentChunk].join("\n"));
+            //             currentChunk = [leadText];
+            //             currentLength = leadText.length;
+            //             isFirstChunk = false;
+            //         } else {
+            //             currentChunk.push(leadText);
+            //             currentLength += leadText.length;
+            //         }
+            //     });
+
+            //     if (currentChunk.length > 0) {
+            //         const chunkHeader = isFirstChunk ? header : `📋 (ต่อ) ${thMonth}`;
+            //         messages.push([chunkHeader, ...currentChunk, footer].join("\n"));
+            //     }
+
+            //     await replyMessage(event.replyToken, messages[0]);
+            //     for (let i = 1; i < messages.length; i++) {
+            //         await pushMessage(groupId, messages[i]);
+            //     }
+            // }
+
             if (text === "/คนไข้ใหม่") {
                 const clinic = await UserModel.findOne({ lineGroupId: groupId }).lean();
 
@@ -159,50 +276,28 @@ router.post("/webhook/line", async (req: Request, res: Response) => {
                 }
 
                 const now = new Date();
-                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-                const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+                const patients = await getNewPatientsOfMonth(
+                    clinic.clinicId,
+                    now.getFullYear(),
+                    now.getMonth()
+                );
 
-                const newPatients = await PatientModel.find({
-                    clinicId: clinic.clinicId,
-                    createdAt: { $gte: startOfMonth, $lte: endOfMonth },
-                }).lean();
+                const thMonth = now.toLocaleString("th-TH", {
+                    month: "long",
+                    year: "numeric",
+                    timeZone: "Asia/Bangkok",
+                });
 
-                if (newPatients.length === 0) {
+                if (!patients || patients.length === 0) {
                     await replyMessage(event.replyToken, `ไม่มีคนไข้ใหม่ในเดือนนี้`);
                     continue;
                 }
 
-                // ดึง appointment ล่าสุดของแต่ละ patient
-                const patientIds = newPatients.map(p => p._id);
-
-                const appointments = await AppointmentModel.find({
-                    "clinic.clinicId": clinic.clinicId,
-                    patientId: { $in: patientIds },
-                }).lean();
-
-                // map appointment ล่าสุดเข้า patient
-                const appointmentMap = new Map<string, any>();
-                for (const appt of appointments) {
-                    const pid = appt.patientId?.toString();
-                    if (!pid) continue;
-                    const existing = appointmentMap.get(pid);
-                    if (!existing || new Date(appt.createdAt!) < new Date(existing.createdAt)) {
-                        appointmentMap.set(pid, appt);
-                    }
-                }
-
-                // รวม patient + appointment แล้วแยกกลุ่ม
-                const combined = newPatients.map(p => ({
-                    fullname: p.fullname,
-                    interest: p.interest || null,
-                    appointmentDate: appointmentMap.get(p._id.toString())?.appointments?.date || null,
-                }));
-
-                const scheduled = combined
+                const scheduled = patients
                     .filter(p => p.appointmentDate)
                     .sort((a, b) => new Date(a.appointmentDate!).getTime() - new Date(b.appointmentDate!).getTime());
 
-                const unscheduled = combined.filter(p => !p.appointmentDate);
+                const unscheduled = patients.filter(p => !p.appointmentDate);
                 const sorted = [...scheduled, ...unscheduled];
 
                 const formatDate = (date: Date) =>
@@ -219,12 +314,6 @@ router.post("/webhook/line", async (req: Request, res: Response) => {
                     const date = p.appointmentDate ? formatDate(p.appointmentDate) : "ยังไม่นัด";
                     return `${index}. ${p.fullname}\n   - ${interest}\n   - ${date}`;
                 };
-
-                const thMonth = now.toLocaleString("th-TH", {
-                    month: "long",
-                    year: "numeric",
-                    timeZone: "Asia/Bangkok",
-                });
 
                 const header = [
                     `👤 คนไข้ใหม่ ${thMonth}`,
@@ -243,7 +332,6 @@ router.post("/webhook/line", async (req: Request, res: Response) => {
 
                 sorted.forEach((p, i) => {
                     const leadText = formatLead(p, i + 1);
-
                     if (currentLength + leadText.length + footer.length > LIMIT) {
                         const chunkHeader = isFirstChunk ? header : `📋 (ต่อ) ${thMonth}`;
                         messages.push([chunkHeader, ...currentChunk].join("\n"));

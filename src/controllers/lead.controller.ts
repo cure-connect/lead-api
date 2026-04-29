@@ -88,6 +88,16 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
 
     const lead = await createLead(leadData);
 
+    // notifyNewLead(
+    //   clinicId,
+    //   patient.fullname,
+    //   leadData.appointments?.status || "pending",
+    //   interests.map((i: any) => i.name),
+    //   leadData.appointments?.date,
+    //   deposit?.amount,
+    //   body.referralChannel
+    // ).catch((err) => console.error("LINE notify failed:", err.message));
+
     notifyNewLead(
       clinicId,
       patient.fullname,
