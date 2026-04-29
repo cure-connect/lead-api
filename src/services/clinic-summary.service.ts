@@ -1,18 +1,47 @@
 import { AppointmentModel } from "../models/appointment";
 import { PatientModel } from "../models/patient";
+import dayjs from "dayjs";
+import timezone from "dayjs/plugin/timezone";
+import utc from "dayjs/plugin/utc";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 export const getClinicMonthlySummary = async (
     clinicId: number,
     year: number,
-    month: number // 0-indexed
+    month: number
 ) => {
-    const startOfMonth = new Date(year, month, 1);
-    const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
+    
+    // const startOfMonth = new Date(year, month, 1);
+    // const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
+
+    // const [appointments, newPatients] = await Promise.all([
+    //     AppointmentModel.find({
+    //         "clinic.clinicId": clinicId,
+    //         createdAt: { $gte: startOfMonth, $lte: endOfMonth },
+    //     }).lean(),
+    //     PatientModel.countDocuments({
+    //         clinicId,
+    //         createdAt: { $gte: startOfMonth, $lte: endOfMonth },
+    //     }),
+    // ]);
+
+    const startOfMonth = dayjs.tz(
+        `${year}-${String(month + 1).padStart(2, "0")}-01`,
+        "Asia/Bangkok"
+    ).startOf("month").toDate();
+
+    const endOfMonth = dayjs.tz(
+        `${year}-${String(month + 1).padStart(2, "0")}-01`,
+        "Asia/Bangkok"
+    ).endOf("month").toDate();
 
     const [appointments, newPatients] = await Promise.all([
         AppointmentModel.find({
             "clinic.clinicId": clinicId,
-            createdAt: { $gte: startOfMonth, $lte: endOfMonth },
+            "appointments.status": { $in: ["arrived", "scheduled"] },
+            "appointments.date": { $gte: startOfMonth, $lte: endOfMonth },
         }).lean(),
         PatientModel.countDocuments({
             clinicId,
@@ -20,6 +49,8 @@ export const getClinicMonthlySummary = async (
         }),
     ]);
 
+    console.log('startOfMonth', startOfMonth)
+    console.log('endOfMonth', endOfMonth)
     // ยอดสุทธิ = netAmount ถ้ามี service charge, ไม่งั้นใช้ amount
     const totalRevenue = appointments.reduce((sum, appt) => {
         const payment = appt.payments;
