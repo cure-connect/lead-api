@@ -59,6 +59,66 @@ export const notifyNewLead = async (
     await sendLineGroupMessage(clinic.lineGroupId, message);
 };
 
+export const notifyArrived = async (
+    clinicId: number,
+    patientName: string,
+    procedures: { name: string; price: string }[],
+    payment?: {
+        method?: string;
+        amount?: number;
+        serviceCharge?: { netAmount?: number };
+    },
+    nextAppointmentDate?: Date,
+    hasNextAppointment?: boolean
+): Promise<void> => {
+    const clinic = await UserModel.findOne({ clinicId }).lean();
+    if (!clinic?.lineGroupId) return;
+
+    const methodLabel: Record<string, string> = {
+        cash: "เงินสด",
+        transfer: "โอนเงิน",
+        card: "บัตรเครดิต",
+        free: "ฟรี",
+    };
+
+    const procedureText = procedures.length > 0
+        ? procedures.map(p => `   • ${p.name} (${p.price} บาท)`).join("\n")
+        : "   • -";
+
+    const netAmount = payment?.serviceCharge?.netAmount ?? payment?.amount ?? 0;
+    const paymentText = payment?.amount
+        ? [
+            `วิธีชำระ: ${methodLabel[payment.method ?? ""] ?? payment.method ?? "-"}`,
+            `ยอดชำระ: ${netAmount.toLocaleString("th-TH")} บาท`,
+        ].join("\n")
+        : `ยังไม่มีข้อมูลการชำระเงิน`;
+
+    const nextText = nextAppointmentDate
+        ? ` 📅 นัดครั้งถัดไป: ${new Date(nextAppointmentDate).toLocaleString("th-TH", {
+            timeZone: "Asia/Bangkok",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        })}`
+        : hasNextAppointment
+            ? `📅 ยังไม่ระบุวันนัดถัดไป`
+            : `📅 ยังไม่มีนัดหมายถัดไป`;
+
+    const message = [
+        `✅ มาตามนัด!`,
+        `${clinic.clinicName} - ${clinic.branch}\n`,
+        `ชื่อ: ${patientName}`,
+        `รายการ:`,
+        procedureText,
+        paymentText,
+        nextText,
+    ].join("\n");
+
+    await sendLineGroupMessage(clinic.lineGroupId, message);
+};
+
 export const notifyStatusChange = async (
     clinicId: number,
     patientName: string,

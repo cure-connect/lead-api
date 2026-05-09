@@ -7,11 +7,13 @@ import {
   deleteLeadById,
   getAppointmentHistory,
   getNextAppointments,
+  findNextAppointment,
+  hasPriorLeads
 } from "../services/lead.service";
 import { findOrCreatePatient, addDeposit, useDeposit } from "../services/patient.service";
 import { logActivity } from "../services/activity.service";
 import { AuthRequest } from "../middleware/auth.middlware";
-import { notifyNewLead, notifyStatusChange } from "../services/notification.service";
+import { notifyNewLead, notifyArrived, notifyStatusChange } from "../services/notification.service";
 
 export const createLeadController = async (req: AuthRequest, res: Response) => {
   try {
@@ -88,25 +90,19 @@ export const createLeadController = async (req: AuthRequest, res: Response) => {
 
     const lead = await createLead(leadData);
 
-    // notifyNewLead(
-    //   clinicId,
-    //   patient.fullname,
-    //   leadData.appointments?.status || "pending",
-    //   interests.map((i: any) => i.name),
-    //   leadData.appointments?.date,
-    //   deposit?.amount,
-    //   body.referralChannel
-    // ).catch((err) => console.error("LINE notify failed:", err.message));
+    const isNewPatient = !(await hasPriorLeads(patient._id, clinicId, lead._id));
 
-    notifyNewLead(
-      clinicId,
-      patient.fullname,
-      leadData.appointments?.status || "pending",
-      interests.map((i: any) => i.name),
-      leadData.appointments?.date,
-      deposit?.amount,
-      body.referralChannel
-    ).catch((err) => console.error("LINE notify failed:", err.message));
+    if (isNewPatient) {
+      notifyNewLead(
+        clinicId,
+        patient.fullname,
+        leadData.appointments?.status || "pending",
+        interests.map((i: any) => i.name),
+        leadData.appointments?.date,
+        deposit?.amount,
+        body.referralChannel
+      ).catch((err) => console.error("LINE notify failed:", err.message));
+    }
 
     // ============================================
     // เพิ่มเงินมัดจำเข้า Patient Wallet
@@ -321,6 +317,36 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
 
     const newStatus = updateData.appointments?.status;
     const oldStatus = oldLead.appointments?.status;
+
+    // แจ้งเตือนเมื่อเปลี่ยนสถานะเป็น arrived (มาตามนัด)
+    if (newStatus === "arrived" && oldStatus !== "arrived") {
+      let nextAppointmentDate: Date | undefined;
+      let hasNextAppointment = false;
+
+      // อ่านจาก payload ก่อน (frontend ส่งมาตอน arrived พร้อม toggle เปิด)
+      if (updateData.nextAppointment?.hasNext) {
+        hasNextAppointment = true;
+        if (updateData.nextAppointment.date) {
+          nextAppointmentDate = new Date(updateData.nextAppointment.date);
+        }
+      } else {
+        // fallback: เช็คใน DB เผื่อ record นัดถัดไปถูกสร้างไว้แล้ว
+        const nextAppt = await findNextAppointment(leadId, clinicId);
+        if (nextAppt) {
+          hasNextAppointment = true;
+          nextAppointmentDate = nextAppt.appointments?.date;
+        }
+      }
+
+      notifyArrived(
+        clinicId,
+        updatedLead.patient?.fullname || oldLead.patient?.fullname,
+        updateData.procedures ?? (oldLead as any).procedures ?? [],
+        updateData.payments ?? (oldLead as any).payments,
+        nextAppointmentDate,
+        hasNextAppointment
+      ).catch(err => console.error("LINE notify failed:", err.message));
+    }
 
     if (newStatus && newStatus !== oldStatus) {
       if (newStatus === "rescheduled") {

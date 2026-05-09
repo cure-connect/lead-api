@@ -532,3 +532,33 @@ export const deleteLeadById = async (id: string, clinicId: number) => {
     throw error;
   }
 };
+
+export const findNextAppointment = async (
+  currentLeadId: string,
+  clinicId: number
+) => {
+  return await AppointmentModel.findOne({
+    previousAppointmentId: new Types.ObjectId(currentLeadId),
+    "clinic.clinicId": clinicId,
+  }).lean();
+};
+
+export const hasPriorLeads = async (
+  patientId: Types.ObjectId | string,
+  clinicId: number,
+  excludeLeadId?: Types.ObjectId | string
+): Promise<boolean> => {
+  const query: any = {
+    patientId: typeof patientId === "string" ? new Types.ObjectId(patientId) : patientId,
+    "clinic.clinicId": clinicId,
+  };
+
+  if (excludeLeadId) {
+    query._id = {
+      $ne: typeof excludeLeadId === "string" ? new Types.ObjectId(excludeLeadId) : excludeLeadId,
+    };
+  }
+
+  const exists = await AppointmentModel.exists(query);
+  return exists !== null;
+};
