@@ -12,6 +12,7 @@ import {
     getTransactionsController,
     getPatientAppointmentsController,
     checkTelController,
+    getNewPatientsByMonthController
 } from "../controllers/patient.controller";
 import { apiKeyMiddleware, authMiddleware } from "../middleware/auth.middlware";
 
@@ -91,6 +92,37 @@ router.get("/patient/check-tel", authMiddleware, checkTelController);
  *           type: boolean
  */
 router.get("/patient", authMiddleware, getAllPatientsController);
+
+/**
+ * @swagger
+ * /lead/v1/api/patient/new:
+ *   get:
+ *     tags: [Patient]
+ *     summary: Get new patients by month (based on first appointment date)
+ *     description: |
+ *       ดึงคนไข้ใหม่ของเดือนที่ระบุ โดยใช้ "วันนัดหมายแรกสุด" เป็นเกณฑ์
+ *       ถ้าคนไข้ไม่มีนัดเลย จะ fallback ใช้ createdAt ของ patient
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: integer
+ *         description: ปี ค.ศ. (default = ปีปัจจุบัน)
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: integer
+ *         description: เดือน 1-12 (default = เดือนปัจจุบัน)
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ */
+router.get("/patient/new", authMiddleware, getNewPatientsByMonthController);
 
 /**
  * @swagger

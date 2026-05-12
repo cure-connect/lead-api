@@ -560,3 +560,128 @@ export const getPatientAppointments = async (
         throw error;
     }
 };
+
+export const getNewPatientsByMonth = async (
+    clinicId: number,
+    year: number,
+    month: number, // 1-12
+    options: {
+        page?: number;
+        limit?: number;
+    } = {}
+) => {
+    try {
+        const { page = 1, limit = 50 } = options;
+        const skip = (page - 1) * limit;
+
+        const TZ = "Asia/Bangkok";
+
+        const basePipeline: any[] = [
+            { $match: { clinicId } },
+
+            // หานัดหมายแรกสุดของคนไข้แต่ละคน (ข้าม cancelled และ leads ที่ไม่มี date)
+            {
+                $lookup: {
+                    from: "appointments",
+                    let: { pid: "$_id" },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ["$patientId", "$$pid"] },
+                                        { $ne: ["$appointments.status", "cancelled"] },
+                                        { $ne: ["$appointments.date", null] },
+                                        { $gt: [{ $ifNull: ["$appointments.date", null] }, null] },
+                                    ],
+                                },
+                            },
+                        },
+                        {
+                            $group: {
+                                _id: null,
+                                firstAppointmentDate: { $min: "$appointments.date" },
+                            },
+                        },
+                    ],
+                    as: "_apptInfo",
+                },
+            },
+
+            // คำนวณ referenceDate = firstAppointmentDate ?? createdAt
+            {
+                $addFields: {
+                    firstAppointmentDate: {
+                        $arrayElemAt: ["$_apptInfo.firstAppointmentDate", 0],
+                    },
+                },
+            },
+
+            // กรองตามเดือน/ปีของ referenceDate
+            {
+                $match: {
+                    firstAppointmentDate: { $ne: null },
+                    $expr: {
+                        $and: [
+                            { $eq: [{ $year: { date: "$firstAppointmentDate", timezone: TZ } }, year] },
+                            { $eq: [{ $month: { date: "$firstAppointmentDate", timezone: TZ } }, month] },
+                        ],
+                    },
+                },
+            },
+
+            // เรียงจากใหม่ → เก่า
+            { $sort: { referenceDate: -1, _id: -1 } },
+
+            // เลือก field ที่ใช้
+            {
+                $project: {
+                    _id: 1,
+                    fullname: 1,
+                    nickname: 1,
+                    tel: 1,
+                    socialMedia: 1,
+                    interest: 1,
+                    referralChannel: 1,
+                    branch: 1,
+                    createdBy: 1,
+                    createdAt: 1,
+                    firstAppointmentDate: 1,
+                    referenceDate: 1,
+                },
+            },
+        ];
+
+        // ใช้ $facet เพื่อ count + paginate ใน round-trip เดียว
+        const [result] = await PatientModel.aggregate([
+            ...basePipeline,
+            {
+                $facet: {
+                    data: [{ $skip: skip }, { $limit: limit }],
+                    totalCount: [{ $count: "count" }],
+                },
+            },
+        ]);
+
+        const data = result?.data || [];
+        const total = result?.totalCount?.[0]?.count || 0;
+
+        return {
+            data,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        };
+    } catch (error: any) {
+        logger.error("Failed to get new patients by month", {
+            error: error.message,
+            clinicId,
+            year,
+            month,
+        });
+        throw error;
+    }
+};

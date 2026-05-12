@@ -12,6 +12,7 @@ import {
     getTransactionHistory,
     getPatientAppointments,
     checkTelDuplicate,
+    getNewPatientsByMonth,
 } from "../services/patient.service";
 import { logActivity } from "../services/activity.service";
 import { AuthRequest } from "../middleware/auth.middlware";
@@ -558,6 +559,44 @@ export const checkTelController = async (req: AuthRequest, res: Response) => {
         });
     } catch (err: any) {
         console.error("Error checking tel:", err);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const getNewPatientsByMonthController = async (req: AuthRequest, res: Response) => {
+    try {
+        const clinicId = req.user?.clinicId;
+
+        if (!clinicId) {
+            return res.status(401).json({ message: "Unauthorized: clinicId not found" });
+        }
+
+        const { year, month, page, limit } = req.query;
+
+        const now = new Date();
+        const yearNum = year ? parseInt(year as string, 10) : now.getFullYear();
+        const monthNum = month ? parseInt(month as string, 10) : now.getMonth() + 1;
+
+        if (isNaN(yearNum) || yearNum < 2000 || yearNum > 9999) {
+            return res.status(400).json({ message: "Invalid year" });
+        }
+        if (isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+            return res.status(400).json({ message: "Invalid month (must be 1-12)" });
+        }
+
+        const result = await getNewPatientsByMonth(clinicId, yearNum, monthNum, {
+            page: page ? parseInt(page as string, 10) : 1,
+            limit: limit ? parseInt(limit as string, 10) : 50,
+        });
+
+        res.json({
+            success: true,
+            year: yearNum,
+            month: monthNum,
+            ...result,
+        });
+    } catch (err: any) {
+        console.error("Error getting new patients by month:", err);
         res.status(500).json({ message: err.message });
     }
 };
