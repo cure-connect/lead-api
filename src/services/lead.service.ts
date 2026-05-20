@@ -5,6 +5,19 @@ import logger from "./logger.service";
 
 type AppointmentStatus = "pending" | "scheduled" | "rescheduled" | "cancelled" | "arrived";
 
+export type FollowUpStatus =
+  | { type: 'scheduled'; appointmentDate: Date }
+  | { type: 'pending' }
+  | { type: 'no_follow_up' }
+  | { type: 'cancelled'; cancelledDate: Date | null };
+
+export const FOLLOW_UP_LABELS = {
+  scheduled: 'ยังไม่ถึงวันนัดหมาย',
+  pending: 'ยังไม่ระบุวันนัด',
+  no_follow_up: 'ไม่มีนัดหมายต่อ',
+  cancelled: 'ยกเลิกนัด',
+} as const;
+
 interface CreateLeadInput {
   patientId?: string;
   clinic: {
@@ -38,9 +51,8 @@ interface CreateLeadInput {
   previousAppointmentId?: string;
 }
 
-// ============================================
 // Helper: override embedded patient ด้วยข้อมูลจาก populated patientId
-// ============================================
+
 const populatePatientFields = "fullname nickname tel socialMedia";
 
 const mergePatientData = (doc: any) => {
@@ -57,9 +69,6 @@ const mergePatientData = (doc: any) => {
   return doc;
 };
 
-// ============================================
-// Create Lead (ไม่เปลี่ยน)
-// ============================================
 export const createLead = async (
   data: CreateLeadInput
 ): Promise<LeadDocument> => {
@@ -160,9 +169,8 @@ export const createLead = async (
   }
 };
 
-// ============================================
 // Find Leads — populate patientId แล้ว merge
-// ============================================
+
 export const findLeads = async (clinicId: number, year?: string) => {
   try {
     const query: any = { "clinic.clinicId": clinicId };
@@ -193,9 +201,8 @@ export const findLeads = async (clinicId: number, year?: string) => {
   }
 };
 
-// ============================================
 // Find Lead By ID — populate patientId แล้ว merge
-// ============================================
+
 export const findLeadById = async (id: string, clinicId: number) => {
   try {
     const lead = await AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId })
@@ -211,10 +218,9 @@ export const findLeadById = async (id: string, clinicId: number) => {
   }
 };
 
-// ============================================
 // Get Appointment History
 // $graphLookup ไม่รองรับ populate → batch lookup patientIds เอง
-// ============================================
+
 export const getAppointmentHistory = async (
   appointmentId: string,
   clinicId: number
@@ -348,9 +354,8 @@ export const getAppointmentHistory = async (
   }
 };
 
-// ============================================
 // Get Next Appointments — populate patientId แล้ว merge
-// ============================================
+
 export const getNextAppointments = async (
   appointmentId: string,
   clinicId: number
@@ -375,9 +380,6 @@ export const getNextAppointments = async (
   }
 };
 
-// ============================================
-// Update Lead (ไม่เปลี่ยน)
-// ============================================
 export const updateLeadById = async (
   id: string,
   clinicId: number,
@@ -495,9 +497,6 @@ export const updateLeadById = async (
   }
 };
 
-// ============================================
-// Delete Lead (ไม่เปลี่ยน)
-// ============================================
 export const deleteLeadById = async (id: string, clinicId: number) => {
   try {
     const leadToDelete = await AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId });
@@ -562,3 +561,35 @@ export const hasPriorLeads = async (
   const exists = await AppointmentModel.exists(query);
   return exists !== null;
 };
+
+export function getAppointmentFollowUpStatus(
+  currentLead: LeadDocument,
+  leadById: Map<string, LeadDocument>,
+): FollowUpStatus {
+  if (!currentLead.nextAppointmentId) {
+    return { type: 'no_follow_up' };
+  }
+
+  const next = leadById.get(String(currentLead.nextAppointmentId));
+  if (!next) return { type: 'no_follow_up' };
+
+  switch (next.appointments.status) {
+    case 'cancelled':
+      return {
+        type: 'cancelled',
+        cancelledDate: next.appointments.date ?? null,
+      };
+    case 'pending':
+      return { type: 'pending' };
+    case 'scheduled':
+    case 'rescheduled':
+      return {
+        type: 'scheduled',
+        appointmentDate: next.appointments.date!,
+      };
+    case 'arrived':
+      // next เกิดขึ้นแล้ว — ไม่มี follow-up ที่ pending จากมุมของ row นี้
+      // (ตัว next เองจะเป็น "current" ในรอบของมันและแสดง follow-up ของตัวเองอีกที)
+      return { type: 'no_follow_up' };
+  }
+}

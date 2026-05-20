@@ -62,8 +62,11 @@ export interface LeadDocument extends Document {
   arrivedNote?: string;
   rescheduledNote?: string;
   cancelledNote?: string;
+  syncedAt?: Date;
+  syncedStatus?: "pending" | "scheduled" | "rescheduled" | "cancelled" | "arrived";
   createdBy: string;
   createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const AppointmentSchema = new Schema<LeadDocument>(
@@ -170,6 +173,12 @@ const AppointmentSchema = new Schema<LeadDocument>(
     arrivedNote: { type: String },
     rescheduledNote: { type: String },
     cancelledNote: { type: String },
+    syncedAt: { type: Date, default: null, index: true },
+    syncedStatus: {
+      type: String,
+      enum: ["pending", "scheduled", "rescheduled", "cancelled", "arrived"],
+      default: null,
+    },
     createdBy: { type: String, required: true },
   },
   {

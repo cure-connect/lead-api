@@ -11,11 +11,13 @@ import authroute from "./routes/auth.route"
 import uploadroute from "./routes/upload.route"
 import patientroute from "./routes/patient.route";
 import lineroute from "./routes/line-webhook.route"
+import sheetroute from "./routes/sheet.route"
 import externalApiRoutes from "./external";
 import apiKeyRoutes from "./routes/api-key.route";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { startSummaryCronJob } from "./services/summary-notification.service";
+import { startSheetSyncCron } from './cron/sheet.cron';
 
 const app = express();
 
@@ -61,6 +63,7 @@ app.use("/lead/v1/api", patientroute)
 app.use("/lead/v1/api", leadroute)
 app.use("/lead/v1/api", settingroute)
 app.use("/lead/v1/api", userroute)
+app.use("/lead/v1/api", sheetroute)
 
 app.use("/lead/v1/api", uploadroute)
 
@@ -69,6 +72,7 @@ const PORT = process.env.PORT || 3000;
 const startServer = async () => {
   await connectDB();
   startSummaryCronJob();
+  startSheetSyncCron();
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });

@@ -16,6 +16,8 @@ export interface UserDocument extends Document {
   },
   lineGroupId?: string;
   lineAdminIds?: string[];
+  googleSheetId?: string;
+  sheetSyncEnabled: Boolean;
   createdAt: Date;
   updatedAt: Date;
 
@@ -82,6 +84,16 @@ const UserSchema = new Schema<UserDocument>(
         type: String
       }
     ],
+
+    googleSheetId: {
+      type: String,
+      default: null
+    },
+    sheetSyncEnabled: {
+      type: Boolean,
+      default: false
+    },
+
   },
   {
     timestamps: true,
