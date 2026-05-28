@@ -18,6 +18,7 @@ export interface UserDocument extends Document {
   lineAdminIds?: string[];
   googleSheetId?: string;
   sheetSyncEnabled: Boolean;
+  lastSyncedLeadCount?: number;
   createdAt: Date;
   updatedAt: Date;
 
@@ -92,6 +93,10 @@ const UserSchema = new Schema<UserDocument>(
     sheetSyncEnabled: {
       type: Boolean,
       default: false
+    },
+    lastSyncedLeadCount: {
+      type: Number,
+      default: 0,
     },
 
   },

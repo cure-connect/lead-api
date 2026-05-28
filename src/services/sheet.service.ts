@@ -4,6 +4,8 @@ import { UserModel, UserDocument } from '../models/user';
 
 const TZ = 'Asia/Bangkok';
 const SHEET_TAB = 'leads';
+const MAX_SLIP_COLUMNS: number = 5;
+const RECEIPT_BASE_URL = (process.env.RECEIPT_BASE_URL ?? '').replace(/\/+$/, '');
 
 const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(
@@ -13,16 +15,21 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
+const SLIP_HEADERS = MAX_SLIP_COLUMNS === 1
+    ? ['สลิป']
+    : Array.from({ length: MAX_SLIP_COLUMNS }, (_, i) => `สลิป ${i + 1}`);
+
 const HEADER = [
     'ชื่อ-นามสกุล', 'ชื่อเล่น', 'เบอร์โทร', 'วันที่', 'เวลา', 'รายการ',
     'ยอด (บาท)', 'ช่องทาง', 'ยอดสุทธิ (บาท)', 'ทำจริง', 'หมายเหตุ',
+    ...SLIP_HEADERS,
 ];
 
+const TOTAL_COLS = 11 + MAX_SLIP_COLUMNS;
+const EMPTY_ROW = Array(TOTAL_COLS).fill('');
+
 const PAYMENT_METHOD_TH: Record<string, string> = {
-    cash: 'เงินสด',
-    transfer: 'โอนเงิน',
-    card: 'บัตร',
-    free: 'ฟรี',
+    cash: 'เงินสด', transfer: 'โอนเงิน', card: 'บัตร', free: 'ฟรี',
 };
 
 const LABELS = {
@@ -32,14 +39,11 @@ const LABELS = {
     cancelled: 'ยกเลิกนัด',
 } as const;
 
-const EMPTY_ROW = ['', '', '', '', '', '', '', '', '', '', ''];
-
-// ───── Date helpers ──────────────────────────────────────────
+// ───── Helpers ───────────────────────────────────────────────
 function fmtDate(d?: Date | null): string {
     if (!d) return '';
     const parts = new Intl.DateTimeFormat('en-GB', {
-        timeZone: TZ,
-        day: '2-digit', month: '2-digit', year: 'numeric',
+        timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric',
     }).formatToParts(new Date(d));
     const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
     return `${get('day')}/${get('month')}/${get('year')}`;
@@ -48,8 +52,7 @@ function fmtDate(d?: Date | null): string {
 function fmtTime(d?: Date | null): string {
     if (!d) return '';
     const parts = new Intl.DateTimeFormat('en-GB', {
-        timeZone: TZ,
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
     }).formatToParts(new Date(d));
     const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
     return `${get('hour')}:${get('minute')}:${get('second')}`;
@@ -61,13 +64,39 @@ function parsePrice(price: any): number {
     return 0;
 }
 
+function toAbsoluteUrl(path: string): string {
+    if (!path) return '';
+    const full = /^https?:\/\//i.test(path)
+        ? path
+        : `${RECEIPT_BASE_URL}/${path.replace(/^\/+/, '')}`;
+    return encodeURI(full);
+}
+
+// สร้าง slip cells แบบ array ความยาว = MAX_SLIP_COLUMNS
+function buildSlipCells(lead: LeadDocument): string[] {
+    const slips = [lead.receiptUrl, ...(lead.receiptUrls ?? [])]
+        .filter(Boolean)
+        .map((u) => toAbsoluteUrl(u as string));
+    const unique = [...new Set(slips)];
+
+    const cells: string[] = [];
+    for (let i = 0; i < MAX_SLIP_COLUMNS; i++) {
+        if (unique[i]) {
+            cells.push(`=HYPERLINK("${unique[i]}","ดูสลิป")`);
+        } else {
+            cells.push(i === 0 && unique.length === 0 ? '-' : '');
+        }
+    }
+    return cells;
+}
+
+const emptySlipCells = (): string[] => Array(MAX_SLIP_COLUMNS).fill('');
+
 // ───── Sheet tab helper ──────────────────────────────────────
 async function ensureSheetTab(spreadsheetId: string, title: string) {
     const meta = await sheets.spreadsheets.get({
-        spreadsheetId,
-        fields: 'sheets.properties(title,sheetId)',
+        spreadsheetId, fields: 'sheets.properties(title,sheetId)',
     });
-
     const exists = meta.data.sheets?.some((s) => s.properties?.title === title);
     if (exists) return;
 
@@ -86,7 +115,6 @@ async function ensureSheetTab(spreadsheetId: string, title: string) {
         });
         return;
     }
-
     await sheets.spreadsheets.batchUpdate({
         spreadsheetId,
         requestBody: { requests: [{ addSheet: { properties: { title } } }] },
@@ -101,6 +129,13 @@ function getPatientKey(lead: LeadDocument): string {
 
 function getOrderKey(lead: LeadDocument): number {
     return (lead.appointments.date ?? lead.createdAt ?? new Date(0)).getTime();
+}
+
+function leadNeedsSync(lead: LeadDocument): boolean {
+    if (!lead.syncedAt) return true;
+    if (lead.appointments.status !== lead.syncedStatus) return true;
+    if (lead.updatedAt && new Date(lead.updatedAt) > new Date(lead.syncedAt)) return true;
+    return false;
 }
 
 function buildPatientRows(leads: LeadDocument[]): (string | number)[][] {
@@ -126,13 +161,10 @@ function buildPatientRows(leads: LeadDocument[]): (string | number)[][] {
                 const procs = lead.procedures?.length
                     ? lead.procedures
                     : (lead.interests ?? []).map((i) => ({ name: i.name, price: '0' }));
-
                 const channel = lead.payments?.method
                     ? PAYMENT_METHOD_TH[lead.payments.method] ?? lead.payments.method
                     : '';
                 const rate = lead.payments?.serviceCharge?.rate ?? 0;
-                const arrivedMark = '';
-
                 const list = procs.length > 0 ? procs : [{ name: '', price: '0' }];
 
                 list.forEach((p: any, idx) => {
@@ -143,17 +175,17 @@ function buildPatientRows(leads: LeadDocument[]): (string | number)[][] {
                         rows.push([
                             nameCol(), nicknameCol(), phoneCol(),
                             fmtDate(apt.date), fmtTime(apt.date),
-                            p.name,
-                            price || '', channel, net || '',
-                            arrivedMark, note,
+                            p.name, price || '', channel, net || '',
+                            '', note,
+                            ...buildSlipCells(lead),
                         ]);
                         firstRow = false;
                     } else {
                         rows.push([
                             '', '', '', '', '',
-                            p.name,
-                            price || '', '', net || '',
+                            p.name, price || '', '', net || '',
                             '', '',
+                            ...emptySlipCells(),
                         ]);
                     }
                 });
@@ -163,9 +195,9 @@ function buildPatientRows(leads: LeadDocument[]): (string | number)[][] {
             case 'pending':
                 rows.push([
                     nameCol(), nicknameCol(), phoneCol(),
-                    LABELS.no_date, '',
-                    LABELS.next_appointment,
+                    LABELS.no_date, '', LABELS.next_appointment,
                     '', '', '', '', note,
+                    ...buildSlipCells(lead),
                 ]);
                 firstRow = false;
                 break;
@@ -174,9 +206,9 @@ function buildPatientRows(leads: LeadDocument[]): (string | number)[][] {
             case 'rescheduled':
                 rows.push([
                     nameCol(), nicknameCol(), phoneCol(),
-                    fmtDate(apt.date), fmtTime(apt.date),
-                    LABELS.next_appointment,
+                    fmtDate(apt.date), fmtTime(apt.date), LABELS.next_appointment,
                     '', '', '', '', note,
+                    ...buildSlipCells(lead),
                 ]);
                 firstRow = false;
                 break;
@@ -184,9 +216,9 @@ function buildPatientRows(leads: LeadDocument[]): (string | number)[][] {
             case 'cancelled':
                 rows.push([
                     nameCol(), nicknameCol(), phoneCol(),
-                    fmtDate(apt.date), fmtTime(apt.date),
-                    LABELS.cancelled,
+                    fmtDate(apt.date), fmtTime(apt.date), LABELS.cancelled,
                     '', '', '', '', note,
+                    ...buildSlipCells(lead),
                 ]);
                 firstRow = false;
                 break;
@@ -195,30 +227,17 @@ function buildPatientRows(leads: LeadDocument[]): (string | number)[][] {
 
     const lastStatus = sorted[sorted.length - 1].appointments.status;
     if (lastStatus === 'arrived') {
-        rows.push(['', '', '', '', '', LABELS.no_follow_up, '', '', '', '', '']);
+        rows.push([
+            '', '', '', '', '', LABELS.no_follow_up, '', '', '', '', '',
+            ...emptySlipCells(),
+        ]);
     }
 
     rows.push(EMPTY_ROW);
     return rows;
 }
 
-function leadNeedsSync(lead: LeadDocument): boolean {
-    // ยังไม่เคย sync
-    if (!lead.syncedAt) return true;
-
-    // status เปลี่ยนตั้งแต่ sync ล่าสุด
-    if (lead.appointments.status !== lead.syncedStatus) return true;
-
-    // มีการแก้ข้อมูลอื่นๆ ตั้งแต่ sync ล่าสุด (procedures, payments, note ฯลฯ)
-    if (lead.updatedAt && new Date(lead.updatedAt) > new Date(lead.syncedAt)) {
-        return true;
-    }
-
-    return false;
-}
-
 // ───── Main sync ─────────────────────────────────────────────
-
 export async function syncClinicLeadsToSheet(user: UserDocument) {
     if (!user.googleSheetId || !user.sheetSyncEnabled) {
         return { skipped: true, reason: 'sheet not configured' };
@@ -228,28 +247,28 @@ export async function syncClinicLeadsToSheet(user: UserDocument) {
         .find({ 'clinic.clinicId': user.clinicId })
         .lean<LeadDocument[]>();
 
-    if (leads.length === 0) {
+    const currentCount = leads.length;
+    const lastCount = user.lastSyncedLeadCount ?? 0;
+    const countChanged = currentCount !== lastCount;
+
+    if (currentCount === 0 && !countChanged) {
         return { skipped: true, reason: 'no leads' };
     }
 
-    const needsSync = leads.some(leadNeedsSync);
+    const needsSync = countChanged || leads.some(leadNeedsSync);
     if (!needsSync) {
-        return {
-            skipped: true,
-            reason: 'no changes since last sync',
-            leadCount: leads.length,
-        };
+        return { skipped: true, reason: 'no changes since last sync', leadCount: currentCount };
     }
 
     await ensureSheetTab(user.googleSheetId, SHEET_TAB);
 
-    // group + sort + build rows (เหมือนเดิม)
     const byPatient = new Map<string, LeadDocument[]>();
     for (const lead of leads) {
         const key = getPatientKey(lead);
         if (!byPatient.has(key)) byPatient.set(key, []);
         byPatient.get(key)!.push(lead);
     }
+
     const groups = [...byPatient.values()].sort((a, b) => {
         const maxA = Math.max(...a.map(getOrderKey));
         const maxB = Math.max(...b.map(getOrderKey));
@@ -259,9 +278,10 @@ export async function syncClinicLeadsToSheet(user: UserDocument) {
     const rows: (string | number)[][] = [HEADER];
     for (const g of groups) rows.push(...buildPatientRows(g));
 
+    // clear กว้างเผื่อ MAX_SLIP_COLUMNS ลดลงในอนาคต
     await sheets.spreadsheets.values.clear({
         spreadsheetId: user.googleSheetId,
-        range: `${SHEET_TAB}!A:K`,
+        range: `${SHEET_TAB}!A:Z`,
     });
     await sheets.spreadsheets.values.update({
         spreadsheetId: user.googleSheetId,
@@ -270,22 +290,24 @@ export async function syncClinicLeadsToSheet(user: UserDocument) {
         requestBody: { values: rows },
     });
 
-    const now = new Date();
-    await AppointmentModel.bulkWrite(
-        leads.map((lead) => ({
-            updateOne: {
-                filter: { _id: lead._id },
-                update: {
-                    $set: {
-                        syncedAt: now,
-                        syncedStatus: lead.appointments.status,
-                    },
+    if (leads.length > 0) {
+        const now = new Date();
+        await AppointmentModel.bulkWrite(
+            leads.map((lead) => ({
+                updateOne: {
+                    filter: { _id: lead._id },
+                    update: { $set: { syncedAt: now, syncedStatus: lead.appointments.status } },
+                    timestamps: false,
                 },
-                // ป้องกัน timestamps:true ดัน updatedAt ขึ้นทุกครั้ง (จะทำให้ลูปไม่จบ)
-                timestamps: false,
-            },
-        })),
-        { ordered: false },
+            })),
+            { ordered: false },
+        );
+    }
+
+    await UserModel.updateOne(
+        { _id: user._id },
+        { $set: { lastSyncedLeadCount: currentCount } },
+        { timestamps: false },
     );
 
     return {
