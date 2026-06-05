@@ -217,7 +217,7 @@ export const findOrCreatePatient = async (
         }
 
         // ลองหาจากเบอร์โทร (unique per clinic)
-        if (data.tel) {
+        if (data.tel && data.tel !== "-") {
             const byTel = await PatientModel.findOne({
                 clinicId,
                 tel: data.tel,
