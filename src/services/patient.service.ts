@@ -579,7 +579,10 @@ export const getNewPatientsByMonth = async (
         const basePipeline: any[] = [
             { $match: { clinicId } },
 
-            // หานัดหมายแรกสุดของคนไข้แต่ละคน (ข้าม cancelled และ leads ที่ไม่มี date)
+            // หานัดหมายแรกสุดของคนไข้แต่ละคน
+            // เงื่อนไข: status = arrived, มีวันที่, และต้องเป็นหัตถการที่จ่ายเงิน
+            // (payments.amount > 0 หรือ procedures มี price > 0)
+            // → ถ้า visit แรกเป็นหัตถการฟรี จะไม่นับ ต้องรอ visit ถัดไปที่จ่ายเงินแทน
             {
                 $lookup: {
                     from: "appointments",
@@ -590,9 +593,39 @@ export const getNewPatientsByMonth = async (
                                 $expr: {
                                     $and: [
                                         { $eq: ["$patientId", "$$pid"] },
-                                        { $ne: ["$appointments.status", "cancelled"] },
+                                        { $eq: ["$appointments.status", "arrived"] },
                                         { $ne: ["$appointments.date", null] },
                                         { $gt: [{ $ifNull: ["$appointments.date", null] }, null] },
+                                        // มีการชำระเงินจริง หรือ procedures ที่มีราคา
+                                        {
+                                            $or: [
+                                                { $gt: [{ $ifNull: ["$payments.amount", 0] }, 0] },
+                                                {
+                                                    $gt: [
+                                                        {
+                                                            $reduce: {
+                                                                input: { $ifNull: ["$procedures", []] },
+                                                                initialValue: 0,
+                                                                in: {
+                                                                    $add: [
+                                                                        "$$value",
+                                                                        {
+                                                                            $convert: {
+                                                                                input: { $ifNull: ["$$this.price", "0"] },
+                                                                                to: "double",
+                                                                                onError: 0,
+                                                                                onNull: 0,
+                                                                            }
+                                                                        }
+                                                                    ],
+                                                                },
+                                                            },
+                                                        },
+                                                        0,
+                                                    ],
+                                                },
+                                            ],
+                                        },
                                     ],
                                 },
                             },
@@ -608,7 +641,7 @@ export const getNewPatientsByMonth = async (
                 },
             },
 
-            // คำนวณ referenceDate = firstAppointmentDate ?? createdAt
+            // firstAppointmentDate = วันที่ paid visit แรกของคนไข้คนนี้
             {
                 $addFields: {
                     firstAppointmentDate: {
@@ -617,7 +650,7 @@ export const getNewPatientsByMonth = async (
                 },
             },
 
-            // กรองตามเดือน/ปีของ referenceDate
+            // กรองตามเดือน/ปีของ firstAppointmentDate (paid visit แรก)
             {
                 $match: {
                     firstAppointmentDate: { $ne: null },
@@ -631,7 +664,7 @@ export const getNewPatientsByMonth = async (
             },
 
             // เรียงจากใหม่ → เก่า
-            { $sort: { referenceDate: -1, _id: -1 } },
+            { $sort: { firstAppointmentDate: -1, _id: -1 } },
 
             // เลือก field ที่ใช้
             {
