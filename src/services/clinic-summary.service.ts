@@ -12,30 +12,42 @@ const getNewPatientIds = async (
     startOfMonth: Date,
     endOfMonth: Date
 ): Promise<string[]> => {
-    // หา appointment ที่มีวันนัดในเดือนนี้
-    const appointmentsThisMonth = await AppointmentModel.find({
+    // หา arrived appointment ที่จ่ายเงิน (paid visit) ในเดือนนี้
+    // เงื่อนไข paid: payments.amount > 0 หรือ procedures มี price > 0
+    // → ถ้า visit ฟรีจะไม่นับ ต้องรอ paid visit แรกในเดือนที่ถูกต้องแทน
+    const paidVisitsThisMonth = await AppointmentModel.find({
         "clinic.clinicId": clinicId,
+        "appointments.status": "arrived",
         "appointments.date": { $gte: startOfMonth, $lte: endOfMonth },
         patientId: { $ne: null },
+        $or: [
+            { "payments.amount": { $gt: 0 } },
+            { "procedures.0.price": { $exists: true, $gt: "0" } },
+        ],
     }).lean();
 
     const patientIds = [...new Set(
-        appointmentsThisMonth
+        paidVisitsThisMonth
             .map(a => a.patientId?.toString())
             .filter(Boolean) as string[]
     )];
 
     if (patientIds.length === 0) return [];
 
-    // เช็คว่าแต่ละ patient มี appointment ก่อนเดือนนี้ไหม
-    // ถ้าไม่มี = คนไข้ใหม่ของเดือนนี้
-    const existingPatients = await AppointmentModel.find({
+    // เช็คว่าแต่ละ patient มี paid visit ก่อนเดือนนี้ไหม
+    // ถ้าไม่มีเลย = คนไข้ใหม่ของเดือนนี้
+    const patientsWithPriorPaidVisit = await AppointmentModel.find({
         "clinic.clinicId": clinicId,
-        patientId: { $in: patientIds },
+        "appointments.status": "arrived",
         "appointments.date": { $lt: startOfMonth },
+        patientId: { $in: patientIds },
+        $or: [
+            { "payments.amount": { $gt: 0 } },
+            { "procedures.0.price": { $exists: true, $gt: "0" } },
+        ],
     }).distinct("patientId");
 
-    const existingSet = new Set(existingPatients.map(id => id.toString()));
+    const existingSet = new Set(patientsWithPriorPaidVisit.map(id => id.toString()));
 
     return patientIds.filter(id => !existingSet.has(id));
 };
