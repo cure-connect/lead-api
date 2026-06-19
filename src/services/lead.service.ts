@@ -497,6 +497,147 @@ export const updateLeadById = async (
   }
 };
 
+// แก้ไขหัตถการย้อนหลัง (เฉพาะ lead สถานะ arrived)
+// - แก้ไขได้: procedures / ราคา / การใช้มัดจำ / ช่องทางชำระ / รูปใบเสร็จ(สลิป)
+// - ไม่แตะข้อมูลคนไข้ และไม่ยุ่งกับนัดหมาย/สถานะ
+// - เก็บ snapshot ข้อมูลเดิม (รวมรูปสลิปเก่า) ลง editHistory
+export const editArrivedLead = async (
+  id: string,
+  clinicId: number,
+  body: {
+    procedures?: Array<{ name: string; price: string | number; depositUsed?: number }>;
+    payments?: any;
+    receiptUrls?: string[];
+    editedBy: string;
+    editNote?: string;
+  }
+) => {
+  try {
+    const lead = await AppointmentModel.findOne({
+      _id: id,
+      "clinic.clinicId": clinicId,
+    });
+
+    if (!lead) return { error: "not_found" as const };
+
+    if (lead.appointments?.status !== "arrived") {
+      return { error: "not_arrived" as const };
+    }
+
+    // snapshot ข้อมูลเดิมไว้ใน editHistory (เก็บรูปสลิป/ใบเสร็จเก่าด้วย)
+    const previousSnapshot = {
+      procedures: lead.procedures ? JSON.parse(JSON.stringify(lead.procedures)) : undefined,
+      payments: lead.payments ? JSON.parse(JSON.stringify(lead.payments)) : undefined,
+      deposit: lead.deposit ? JSON.parse(JSON.stringify(lead.deposit)) : undefined,
+      receiptUrls: lead.receiptUrls ? [...lead.receiptUrls] : undefined,
+    };
+
+    const $set: any = {};
+    const $unset: any = {};
+
+    if (Array.isArray(body.procedures)) {
+      $set["procedures"] = body.procedures.map((p) => ({
+        name: p.name,
+        price: String(p.price),
+        ...(Number(p.depositUsed) > 0 ? { depositUsed: Number(p.depositUsed) } : {}),
+      }));
+    }
+
+    if (body.payments !== undefined && body.payments !== null) {
+      // อัปเดตแบบ leaf-path เพื่อไม่ให้ field อื่นใน payments หาย/ค้าง
+      if (body.payments.method !== undefined) $set["payments.method"] = body.payments.method;
+      if (body.payments.amount !== undefined) $set["payments.amount"] = body.payments.amount;
+
+      // Service Charge: ตั้งเฉพาะบัตรเครดิต — วิธีอื่น (โอน/เงินสด/ฟรี) ลบทิ้ง
+      if (body.payments.method === "card" && body.payments.serviceCharge) {
+        $set["payments.serviceCharge.rate"] = body.payments.serviceCharge.rate;
+        $set["payments.serviceCharge.amount"] = body.payments.serviceCharge.amount;
+        $set["payments.serviceCharge.netAmount"] = body.payments.serviceCharge.netAmount;
+      } else {
+        $unset["payments.serviceCharge"] = 1;
+      }
+
+      // ❗ ไม่สร้าง/เปลี่ยนเรทค่าคอมเอง — เรทเป็นของระบบ Synergy
+      // แต่ถ้าราคาหัตถการถูกแก้ ต้องคำนวณฐาน (baseAmount) และยอดคอม (amount) ใหม่
+      // ตามราคาล่าสุด โดยคงเรทเดิมที่ Synergy ตั้งไว้ (จับคู่ตามชื่อหัตถการ)
+    }
+
+    // recompute commission ตามราคาหัตถการใหม่ (คงเรทเดิม)
+    const oldCommission: any = (lead.payments as any)?.commission;
+    if (
+      oldCommission &&
+      Array.isArray(oldCommission.details) &&
+      oldCommission.details.length > 0 &&
+      Array.isArray(body.procedures)
+    ) {
+      // map ชื่อหัตถการ -> ราคารวมใหม่ (รวมกรณีชื่อซ้ำ)
+      const priceByName = new Map<string, number>();
+      for (const p of body.procedures) {
+        const name = (p.name || "").trim();
+        if (!name) continue;
+        priceByName.set(name, (priceByName.get(name) || 0) + (Number(p.price) || 0));
+      }
+
+      const newDetails = oldCommission.details
+        .filter((d: any) => priceByName.has((d.procedureName || "").trim()))
+        .map((d: any) => {
+          const base = priceByName.get((d.procedureName || "").trim()) || 0;
+          const rate = Number(d.rate) || 0;
+          const amount = Math.round((base * rate) / 100 * 100) / 100;
+          return {
+            procedureName: d.procedureName,
+            baseAmount: base,
+            rate,
+            amount,
+          };
+        });
+
+      if (newDetails.length > 0) {
+        const totalAmount =
+          Math.round(newDetails.reduce((s: number, d: any) => s + d.amount, 0) * 100) / 100;
+        $set["payments.commission"] = { totalAmount, details: newDetails };
+      } else {
+        // หัตถการที่เคยมีค่าคอมถูกลบออกหมด
+        $unset["payments.commission"] = 1;
+      }
+    }
+
+    if (Array.isArray(body.receiptUrls)) {
+      $set["receiptUrls"] = body.receiptUrls;
+    }
+
+    const editEntry = {
+      editedBy: body.editedBy,
+      note: body.editNote,
+      editedAt: new Date(),
+      previous: previousSnapshot,
+    };
+
+    const update: any = {
+      $push: { editHistory: editEntry },
+    };
+    if (Object.keys($set).length > 0) update.$set = $set;
+    if (Object.keys($unset).length > 0) update.$unset = $unset;
+
+    const updated = await AppointmentModel.findOneAndUpdate(
+      { _id: id, "clinic.clinicId": clinicId },
+      update,
+      { new: true, runValidators: false }
+    );
+
+    logger.info("Arrived lead procedures edited", {
+      leadId: id,
+      clinicId,
+      editedBy: body.editedBy,
+    });
+
+    return { lead: updated, previous: previousSnapshot };
+  } catch (error: any) {
+    logger.error("Failed to edit arrived lead", { error: error.message, leadId: id, clinicId });
+    throw error;
+  }
+};
+
 export const deleteLeadById = async (id: string, clinicId: number) => {
   try {
     const leadToDelete = await AppointmentModel.findOne({ _id: id, "clinic.clinicId": clinicId });

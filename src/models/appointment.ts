@@ -62,6 +62,21 @@ export interface LeadDocument extends Document {
   arrivedNote?: string;
   rescheduledNote?: string;
   cancelledNote?: string;
+
+  // ประวัติการแก้ไขหัตถการย้อนหลัง (เฉพาะสถานะ arrived)
+  // เก็บ snapshot ข้อมูลเดิม + รูปสลิป/ใบเสร็จเก่าไว้ ดูได้เฉพาะใน Synergy
+  editHistory?: Array<{
+    editedBy: string;
+    note?: string;
+    editedAt: Date;
+    previous: {
+      procedures?: LeadDocument["procedures"];
+      payments?: LeadDocument["payments"];
+      deposit?: LeadDocument["deposit"];
+      receiptUrls?: string[];
+    };
+  }>;
+
   syncedAt?: Date;
   syncedStatus?: "pending" | "scheduled" | "rescheduled" | "cancelled" | "arrived";
   createdBy: string;
@@ -173,6 +188,22 @@ const AppointmentSchema = new Schema<LeadDocument>(
     arrivedNote: { type: String },
     rescheduledNote: { type: String },
     cancelledNote: { type: String },
+
+    // ประวัติการแก้ไขหัตถการย้อนหลัง (เก็บ snapshot ข้อมูลเดิม + รูปสลิปเก่า)
+    editHistory: [
+      {
+        editedBy: { type: String, required: true },
+        note: { type: String },
+        editedAt: { type: Date, default: Date.now },
+        previous: {
+          procedures: { type: Schema.Types.Mixed },
+          payments: { type: Schema.Types.Mixed },
+          deposit: { type: Schema.Types.Mixed },
+          receiptUrls: [{ type: String }],
+        },
+      },
+    ],
+
     syncedAt: { type: Date, default: null, index: true },
     syncedStatus: {
       type: String,

@@ -8,7 +8,8 @@ import {
   getAppointmentHistory,
   getNextAppointments,
   findNextAppointment,
-  hasPriorLeads
+  hasPriorLeads,
+  editArrivedLead
 } from "../services/lead.service";
 import { findOrCreatePatient, addDeposit, useDeposit } from "../services/patient.service";
 import { logActivity } from "../services/activity.service";
@@ -441,6 +442,126 @@ export const updateLeadController = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     res.status(400).json({
       message: "Update lead failed",
+      error: error.message,
+    });
+  }
+};
+
+export const editArrivedLeadController = async (req: AuthRequest, res: Response) => {
+  try {
+    const clinicId = req.user?.clinicId;
+    const clinicName = req.user?.clinicName;
+    const username = req.user?.username;
+
+    if (!clinicId) {
+      return res.status(401).json({ message: "Unauthorized: clinicId not found" });
+    }
+
+    const leadId = req.params.id;
+
+    const oldLead = await findLeadById(leadId, clinicId);
+    if (!oldLead) {
+      return res.status(404).json({ message: "Lead not found" });
+    }
+
+    if (oldLead.appointments?.status !== "arrived") {
+      return res.status(400).json({ message: "แก้ไขย้อนหลังได้เฉพาะรายการที่มาตามนัดแล้ว" });
+    }
+
+    let body: any;
+    if (req.file) {
+      body = JSON.parse(req.body.data || "{}");
+    } else {
+      body = req.body;
+    }
+
+    const editedBy = body.editedBy?.trim();
+    if (!editedBy) {
+      return res.status(400).json({ message: "กรุณาระบุชื่อผู้แก้ไข" });
+    }
+
+    // ============================================
+    // ปรับยอดมัดจำใน Patient Wallet ตามส่วนต่าง (ใหม่ - เก่า)
+    // ============================================
+    const patientId = (oldLead as any).patientId;
+
+    const oldDepositUsed = Array.isArray((oldLead as any).procedures)
+      ? (oldLead as any).procedures.reduce((sum: number, p: any) => sum + (Number(p.depositUsed) || 0), 0)
+      : 0;
+
+    const newDepositUsed = Array.isArray(body.procedures)
+      ? body.procedures.reduce((sum: number, p: any) => sum + (Number(p.depositUsed) || 0), 0)
+      : 0;
+
+    const depositDiff = newDepositUsed - oldDepositUsed;
+
+    if (depositDiff !== 0 && patientId) {
+      try {
+        if (depositDiff > 0) {
+          // ใช้มัดจำเพิ่มจากเดิม
+          await useDeposit(patientId.toString(), clinicId, depositDiff, {
+            description: `แก้ไขหัตถการย้อนหลัง - ใช้มัดจำเพิ่ม (${oldLead.patient?.fullname})`,
+            appointmentId: leadId,
+            createdBy: username,
+          });
+        } else {
+          // คืนมัดจำส่วนที่ใช้น้อยลง
+          await addDeposit(patientId.toString(), clinicId, -depositDiff, {
+            description: `แก้ไขหัตถการย้อนหลัง - คืนมัดจำ (${oldLead.patient?.fullname})`,
+            appointmentId: leadId,
+            createdBy: username,
+          });
+        }
+      } catch (err: any) {
+        console.error("Failed to reconcile deposit on edit:", err.message);
+        if (err.message?.includes("Insufficient balance")) {
+          return res.status(400).json({
+            message: "ยอดเงินมัดจำไม่เพียงพอ",
+            error: err.message,
+          });
+        }
+      }
+    }
+
+    const result = await editArrivedLead(leadId, clinicId, {
+      procedures: body.procedures,
+      payments: body.payments,
+      receiptUrls: body.receiptUrls,
+      editedBy,
+      editNote: body.editNote,
+    });
+
+    if ((result as any).error === "not_found") {
+      return res.status(404).json({ message: "Lead not found" });
+    }
+    if ((result as any).error === "not_arrived") {
+      return res.status(400).json({ message: "แก้ไขย้อนหลังได้เฉพาะรายการที่มาตามนัดแล้ว" });
+    }
+
+    const updatedLead = (result as any).lead;
+
+    await logActivity({
+      userId: clinicId.toString(),
+      userName: username || "unknown",
+      action: "update",
+      resource: "lead",
+      resourceId: leadId,
+      resourceName: oldLead.patient?.fullname,
+      description: `แก้ไขหัตถการย้อนหลัง: ${oldLead.patient?.fullname} (ผู้แก้ไข: ${editedBy})`,
+      metadata: {
+        editedBy,
+        editNote: body.editNote,
+        depositDiff,
+      },
+      clinicId,
+      clinicName,
+      req,
+    });
+
+    res.status(200).json({ data: updatedLead });
+  } catch (error: any) {
+    res.status(400).json({
+      message: "Edit arrived lead failed",
       error: error.message,
     });
   }

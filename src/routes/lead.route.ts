@@ -7,6 +7,7 @@ import {
   deleteLeadController,
   getLeadHistoryController,
   getNextLeadsController,
+  editArrivedLeadController,
 } from "../controllers/lead.controller";
 import { apiKeyMiddleware, authMiddleware } from "../middleware/auth.middlware";
 
@@ -67,6 +68,27 @@ router.get("/lead", getLeadsController);
 
 router.get("/:id/history", getLeadHistoryController);
 router.get("/:id/next", getNextLeadsController);
+
+/**
+ * @swagger
+ * /lead/v1/api/{id}/edit-arrived:
+ *   patch:
+ *     tags: [Lead]
+ *     summary: แก้ไขหัตถการย้อนหลัง (เฉพาะสถานะ arrived)
+ *     security:
+ *       - ApiKeyAuth: []
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Arrived lead edited
+ */
+router.patch("/:id/edit-arrived", editArrivedLeadController);
 
 /**
  * @swagger
